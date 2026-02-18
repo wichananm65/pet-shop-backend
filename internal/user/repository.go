@@ -18,6 +18,8 @@ type Repository interface {
 	Create(user User) (User, error)
 	Update(id int, user User) (User, error)
 	Delete(id int) error
+	// CreateCartWithID creates a cart row with the given id
+	CreateCartWithID(cartID int) error
 }
 
 type InMemoryRepository struct {
@@ -90,6 +92,11 @@ func (r *InMemoryRepository) Create(user User) (User, error) {
 
 	r.users = append(r.users, user)
 	return user, nil
+}
+
+func (r *InMemoryRepository) CreateCartWithID(cartID int) error {
+	// In-memory repo doesn't track carts separately; no-op
+	return nil
 }
 
 func (r *InMemoryRepository) Update(id int, userUpdate User) (User, error) {

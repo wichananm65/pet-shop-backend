@@ -13,6 +13,20 @@ type Handler struct {
 	service *Service
 }
 
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type registerRequest struct {
+	Email     string `json:"email"`
+	Password  string `json:"password"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Phone     string `json:"phone"`
+	Gender    string `json:"gender"`
+}
+
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
@@ -31,17 +45,14 @@ func (h *Handler) RegisterProtectedRoutes(app *fiber.App) {
 }
 
 func (h *Handler) login(c *fiber.Ctx) error {
-	credentials := new(struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	})
-	if err := c.BodyParser(credentials); err != nil {
-		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
+	payload := new(loginRequest)
+	if err := c.BodyParser(payload); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": err.Error()})
 	}
 
-	user, err := h.service.Authenticate(credentials.Email, credentials.Password)
+	user, err := h.service.Authenticate(payload.Email, payload.Password)
 	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).SendString("Invalid email or password")
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "Invalid email or password"})
 	}
 
 	claims := jwt.MapClaims{
@@ -53,7 +64,7 @@ func (h *Handler) login(c *fiber.Ctx) error {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
 	if err != nil {
-		return c.SendStatus(fiber.StatusInternalServerError)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "failed to generate token"})
 	}
 
 	return c.JSON(fiber.Map{
@@ -64,19 +75,12 @@ func (h *Handler) login(c *fiber.Ctx) error {
 }
 
 func (h *Handler) register(c *fiber.Ctx) error {
-	payload := new(struct {
-		Email     string `json:"email"`
-		Password  string `json:"password"`
-		FirstName string `json:"firstName"`
-		LastName  string `json:"lastName"`
-		Phone     string `json:"phone"`
-		Gender    string `json:"gender"`
-	})
+	payload := new(registerRequest)
 	if err := c.BodyParser(payload); err != nil {
 		return c.Status(fiber.StatusBadRequest).SendString(err.Error())
 	}
 
-	if payload.Email == "" || payload.Password == "" || payload.FirstName == "" || payload.LastName == "" || payload.Phone == "" || payload.Gender == "" {
+	if payload.isMissingRequiredFields() {
 		return c.Status(fiber.StatusBadRequest).SendString("Missing required fields")
 	}
 
@@ -168,6 +172,10 @@ func (h *Handler) deleteUser(c *fiber.Ctx) error {
 	}
 
 	return c.SendString("User deleted")
+}
+
+func (r registerRequest) isMissingRequiredFields() bool {
+	return r.Email == "" || r.Password == "" || r.FirstName == "" || r.LastName == "" || r.Phone == "" || r.Gender == ""
 }
 
 func sanitizeUser(user User) User {
