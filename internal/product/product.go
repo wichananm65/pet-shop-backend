@@ -17,6 +17,20 @@ type Product struct {
 	UpdatedAt     *string `json:"updatedAt,omitempty"`
 }
 
+// ProductV1 is the API v1 product detail shape (used by `/api/v1/product/:id`).
+// Field names follow the `products`-style contract used by other v1 endpoints.
+type ProductV1 struct {
+	ProductID     int     `json:"productID"`
+	ProductName   *string `json:"productName,omitempty"`
+	ProductNameTH *string `json:"productNameTH,omitempty"`
+	ProductPrice  *int    `json:"productPrice,omitempty"`
+	ProductImg    *string `json:"productImg,omitempty"`
+	ProductDesc   *string `json:"productDesc,omitempty"`
+	ProductDescTH *string `json:"productDescTH,omitempty"`
+	Score         *int    `json:"score,omitempty"`
+	Category      *string `json:"category,omitempty"`
+}
+
 // AllowedCategories contains the supported product categories used across the app.
 var AllowedCategories = []string{
 	"Animal Food",

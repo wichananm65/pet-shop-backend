@@ -12,6 +12,10 @@ var (
 type Repository interface {
 	List() []Product
 	GetByID(id int) (Product, error)
+	// GetV1ByID returns the `products`-style product detail expected by the
+	// frontend v1 API: productID, productName, productNameTH, productPrice,
+	// productImg, productDesc, productDescTH, score and category.
+	GetV1ByID(id int) (ProductV1, error)
 	Create(p Product) (Product, error)
 	Update(id int, p Product) (Product, error)
 	Delete(id int) error
@@ -63,6 +67,25 @@ func (r *InMemoryRepository) GetByID(id int) (Product, error) {
 		}
 	}
 	return Product{}, ErrNotFound
+}
+
+// GetV1ByID maps an in-memory Product to the ProductV1 response shape.
+func (r *InMemoryRepository) GetV1ByID(id int) (ProductV1, error) {
+	p, err := r.GetByID(id)
+	if err != nil {
+		return ProductV1{}, ErrNotFound
+	}
+	res := ProductV1{
+		ProductID:    p.ID,
+		ProductName:  &p.Name,
+		ProductPrice: &p.Price,
+		ProductImg:   p.Pic,
+		ProductDesc:  &p.Description,
+		Score:        &p.Score,
+		Category:     p.Category,
+	}
+	// In-memory store doesn't have distinct TH fields — leave them nil.
+	return res, nil
 }
 
 func (r *InMemoryRepository) Create(p Product) (Product, error) {

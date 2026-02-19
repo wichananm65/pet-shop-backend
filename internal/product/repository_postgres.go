@@ -75,6 +75,71 @@ func (r *PostgresRepository) GetByID(id int) (Product, error) {
 	return p, nil
 }
 
+// GetV1ByID returns the `products`-style product detail used by the v1 API.
+func (r *PostgresRepository) GetV1ByID(id int) (ProductV1, error) {
+	q := `SELECT "productID", "productName", "productNameTH", "productPrice", "productImg", "productDesc", "productDescTH", "score", "category" FROM products WHERE "productID" = $1`
+	row := r.db.QueryRow(q, id)
+	var (
+		pid      int
+		name     sql.NullString
+		nameTH   sql.NullString
+		price    sql.NullInt64
+		img      sql.NullString
+		desc     sql.NullString
+		descTH   sql.NullString
+		score    sql.NullInt64
+		category sql.NullString
+	)
+	if err := row.Scan(&pid, &name, &nameTH, &price, &img, &desc, &descTH, &score, &category); err != nil {
+		if err == sql.ErrNoRows {
+			return ProductV1{}, ErrNotFound
+		}
+		return ProductV1{}, err
+	}
+	var (
+		pName, pNameTH, pImg, pDesc, pDescTH, pCat *string
+		pPrice, pScore                             *int
+	)
+	if name.Valid {
+		pName = &name.String
+	}
+	if nameTH.Valid {
+		pNameTH = &nameTH.String
+	}
+	if img.Valid {
+		pImg = &img.String
+	}
+	if desc.Valid {
+		pDesc = &desc.String
+	}
+	if descTH.Valid {
+		pDescTH = &descTH.String
+	}
+	if category.Valid {
+		pCat = &category.String
+	}
+	if price.Valid {
+		v := int(price.Int64)
+		pPrice = &v
+	}
+	if score.Valid {
+		v := int(score.Int64)
+		pScore = &v
+	}
+
+	return ProductV1{
+		ProductID:     pid,
+		ProductName:   pName,
+		ProductNameTH: pNameTH,
+		ProductPrice:  pPrice,
+		ProductImg:    pImg,
+		ProductDesc:   pDesc,
+		ProductDescTH: pDescTH,
+		Score:         pScore,
+		Category:      pCat,
+	}, nil
+}
+
 func (r *PostgresRepository) Create(p Product) (Product, error) {
 	var id int
 	err := r.db.QueryRow(

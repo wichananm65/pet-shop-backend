@@ -16,6 +16,11 @@ func (s *Service) GetByID(id int) (Product, error) {
 	return s.repo.GetByID(id)
 }
 
+// GetV1ByID returns the `products`-style product detail for API v1.
+func (s *Service) GetV1ByID(id int) (ProductV1, error) {
+	return s.repo.GetV1ByID(id)
+}
+
 func (s *Service) Create(p Product) (Product, error) {
 	return s.repo.Create(p)
 }

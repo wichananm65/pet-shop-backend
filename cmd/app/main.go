@@ -16,8 +16,10 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
 	"github.com/wichananm65/pet-shop-backend/internal/banner"
+	"github.com/wichananm65/pet-shop-backend/internal/category"
 	"github.com/wichananm65/pet-shop-backend/internal/product"
 	"github.com/wichananm65/pet-shop-backend/internal/recommended"
+	shoppingmall "github.com/wichananm65/pet-shop-backend/internal/shopping-mall"
 	"github.com/wichananm65/pet-shop-backend/internal/user"
 )
 
@@ -56,6 +58,31 @@ func main() {
 		}
 	}
 
+	// ensure category table exists; seed with public/Category images when empty
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS category ("categoryID" SERIAL PRIMARY KEY, "categoryName" TEXT, "categoryImg" TEXT, ord INT)`); err != nil {
+		panic(err)
+	}
+	var categoryCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM category`).Scan(&categoryCount); err == nil {
+		if categoryCount == 0 {
+			seed := []struct{ name, img string }{
+				{"Animal food", "/Category/Animal _food.png"},
+				{"Pet supplies", "/Category/pet_supplies.png"},
+				{"Clothes and accessories", "/Category/Clothes_and_accessories.png"},
+				{"Cleaning equipment", "/Category/Cleaning_equipment.png"},
+				{"Sand and bathroom", "/Category/sand_and_bathroom.png"},
+				{"Hygiene care", "/Category/Hygiene_care.png"},
+				{"Cat snacks", "/Category/Cat_snacks.png"},
+				{"Cat exercise", "/Category/Cat_exercise.png"},
+			}
+			for i, s := range seed {
+				if _, err := db.Exec(`INSERT INTO category ("categoryName", "categoryImg", ord) VALUES ($1,$2,$3)`, s.name, s.img, len(seed)-i); err != nil {
+					continue
+				}
+			}
+		}
+	}
+
 	userHandler := buildUserHandler(db)
 	productHandler := buildProductHandler(db)
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -71,31 +98,13 @@ func main() {
 	bannerHandler := banner.NewHandler(banner.NewService(banner.NewPostgresRepository(db)))
 	bannerHandler.RegisterPublicRoutes(app)
 
-	// Public API for shopping mall section — returns only id + image
-	app.Get("/api/v1/product/shopping-mall", func(c *fiber.Ctx) error {
-		rows, err := db.Query(`SELECT "productID" FROM products ORDER BY "productID" LIMIT 100`)
-		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
-		}
-		defer rows.Close()
+	// register category handler (internal/category)
+	categoryHandler := category.NewHandler(category.NewService(category.NewPostgresRepository(db)))
+	categoryHandler.RegisterPublicRoutes(app)
 
-		type Item struct {
-			ProductId  int     `json:"productId"`
-			ProductPic *string `json:"productPic,omitempty"`
-		}
-
-		out := make([]Item, 0)
-		for rows.Next() {
-			var id int
-			if err := rows.Scan(&id); err != nil {
-				continue
-			}
-			// return API endpoint for the image — frontend will call this URL
-			u := fmt.Sprintf("/api/v1/product/%d/image", id)
-			out = append(out, Item{ProductId: id, ProductPic: &u})
-		}
-		return c.JSON(out)
-	})
+	// register shopping-mall handler (internal/shopping-mall)
+	shoppingMallHandler := shoppingmall.NewHandler(shoppingmall.NewService(shoppingmall.NewPostgresRepository(db)))
+	shoppingMallHandler.RegisterPublicRoutes(app)
 
 	// make uploaded files public
 	app.Static("/uploads", "./uploads")
@@ -132,6 +141,40 @@ func main() {
 			count++
 		}
 		return c.JSON(fiber.Map{"imported": count})
+	})
+
+	// dev endpoint: drop, recreate and reseed `category` table (gated by ALLOW_RESET_CATEGORIES)
+	app.Post("/dev/reset-categories", func(c *fiber.Ctx) error {
+		if os.Getenv("ALLOW_RESET_CATEGORIES") != "1" {
+			return c.Status(fiber.StatusForbidden).SendString("not allowed")
+		}
+
+		// drop and recreate table
+		if _, err := db.Exec(`DROP TABLE IF EXISTS category`); err != nil {
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
+		if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS category ("categoryID" SERIAL PRIMARY KEY, "categoryName" TEXT, "categoryImg" TEXT, ord INT)`); err != nil {
+			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		}
+
+		seed := []struct{ name, img string }{
+			{"Animal food", "/Category/Animal _food.png"},
+			{"Pet supplies", "/Category/pet_supplies.png"},
+			{"Clothes and accessories", "/Category/Clothes_and_accessories.png"},
+			{"Cleaning equipment", "/Category/Cleaning_equipment.png"},
+			{"Sand and bathroom", "/Category/sand_and_bathroom.png"},
+			{"Hygiene care", "/Category/Hygiene_care.png"},
+			{"Cat snacks", "/Category/Cat_snacks.png"},
+			{"Cat exercise", "/Category/Cat_exercise.png"},
+		}
+		inserted := 0
+		for i, s := range seed {
+			if _, err := db.Exec(`INSERT INTO category ("categoryName", "categoryImg", ord) VALUES ($1,$2,$3)`, s.name, s.img, len(seed)-i); err != nil {
+				continue
+			}
+			inserted++
+		}
+		return c.JSON(fiber.Map{"inserted": inserted})
 	})
 
 	// public endpoint to serve product image bytes or fallback to file/redirect

@@ -20,8 +20,27 @@ func (h *Handler) RegisterPublicRoutes(app *fiber.App) {
 	app.Get("/products", h.getProducts)
 	app.Get("/product/:id", h.getProduct)
 
+	// API v1: product detail (canonical v1 contract expected by frontend)
+	app.Get("/api/v1/product/:id", h.getProductV1)
+
 	// dev-only endpoint to reset products — enabled when ALLOW_RESET_PRODUCTS=1
 	app.Post("/dev/reset-products", h.resetProducts)
+}
+
+func (h *Handler) getProductV1(c *fiber.Ctx) error {
+	id, err := strconv.Atoi(c.Params("id"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid id")
+	}
+
+	p, err := h.service.GetV1ByID(id)
+	if err != nil {
+		if err == ErrNotFound {
+			return c.Status(fiber.StatusNotFound).SendString("Product not found")
+		}
+		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+	}
+	return c.JSON(p)
 }
 
 func (h *Handler) RegisterProtectedRoutes(app *fiber.App) {
