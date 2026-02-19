@@ -88,7 +88,6 @@ func main() {
 	jwtSecret := os.Getenv("JWT_SECRET")
 
 	userHandler.RegisterPublicRoutes(app)
-	productHandler.RegisterPublicRoutes(app)
 
 	// register recommended handler (internal/recommended)
 	recommendedHandler := recommended.NewHandler(recommended.NewService(recommended.NewPostgresRepository(db)))
@@ -105,6 +104,9 @@ func main() {
 	// register shopping-mall handler (internal/shopping-mall)
 	shoppingMallHandler := shoppingmall.NewHandler(shoppingmall.NewService(shoppingmall.NewPostgresRepository(db)))
 	shoppingMallHandler.RegisterPublicRoutes(app)
+
+	// register product public routes after specific endpoints to avoid route param collision
+	productHandler.RegisterPublicRoutes(app)
 
 	// make uploaded files public
 	app.Static("/uploads", "./uploads")
