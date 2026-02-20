@@ -42,6 +42,7 @@ func (h *Handler) RegisterProtectedRoutes(app *fiber.App) {
 	app.Post("/users", h.createUser)
 	app.Put("/user/:id", h.updateUser)
 	app.Delete("/user/:id", h.deleteUser)
+
 }
 
 func (h *Handler) login(c *fiber.Ctx) error {

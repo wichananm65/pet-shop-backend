@@ -1,6 +1,7 @@
 package product
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -21,15 +22,20 @@ func (h *Handler) RegisterPublicRoutes(app *fiber.App) {
 	app.Get("/product/:id", h.getProduct)
 
 	// API v1: product detail (canonical v1 contract expected by frontend)
-	app.Get("/api/v1/product/:id", h.getProductV1)
-
+	// Only match numeric IDs so literal paths like `/api/v1/product/favorite` are not
+	// captured by this parameterized route. Use angle-bracket regex which is
+	// supported by the router in the runtime used here and matches the image route.
+	app.Get("/api/v1/product/:id<[0-9]+>", h.getProductV1)
 	// dev-only endpoint to reset products — enabled when ALLOW_RESET_PRODUCTS=1
 	app.Post("/dev/reset-products", h.resetProducts)
 }
 
 func (h *Handler) getProductV1(c *fiber.Ctx) error {
-	id, err := strconv.Atoi(c.Params("id"))
+	param := c.Params("id")
+	fmt.Printf("[DEBUG] product.getProductV1 invoked, id param=%q\n", param)
+	id, err := strconv.Atoi(param)
 	if err != nil {
+		fmt.Printf("[DEBUG] product.getProductV1 failed to parse id: %q\n", param)
 		return c.Status(fiber.StatusBadRequest).SendString("invalid id")
 	}
 

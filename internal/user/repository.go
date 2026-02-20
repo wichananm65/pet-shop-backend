@@ -9,6 +9,8 @@ var (
 	ErrNotFound           = errors.New("user not found")
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrEmailExists        = errors.New("email already exists")
+	ErrAlreadyFavorite    = errors.New("product already in favorites")
+	ErrNotFavorite        = errors.New("product not in favorites")
 )
 
 type Repository interface {

@@ -2,28 +2,35 @@ package user
 
 import (
 	"database/sql"
+	"strconv"
+	"strings"
 )
 
 type PostgresRepository struct {
 	db *sql.DB
 }
 
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
 const (
 	listUsersQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
 		FROM users
 		ORDER BY "userId"
 	`
 	getUserByIDQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
 		FROM users
 		WHERE "userId" = $1
 	`
 	getUserByEmailQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
 		FROM users
 		WHERE email = $1
 	`
+
 	insertUserQuery = `
 		INSERT INTO users (email, password, "firstName", "lastName", phone, gender, "createAt", "updateAt")
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -41,13 +48,6 @@ const (
 	`
 	deleteUserQuery = `DELETE FROM users WHERE "userId" = $1`
 )
-
-// Cart table has been removed — CreateCartWithID is now a no-op to keep
-// the repository interface stable for older callers.
-
-type rowScanner interface {
-	Scan(dest ...any) error
-}
 
 func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 	return &PostgresRepository{db: db}
@@ -168,6 +168,7 @@ func (r *PostgresRepository) CreateCartWithID(cartID int) error {
 
 func scanUser(scanner rowScanner) (User, error) {
 	user := User{}
+	var favText sql.NullString
 	var createdAt sql.NullString
 	var updatedAt sql.NullString
 	if err := scanner.Scan(
@@ -178,10 +179,27 @@ func scanUser(scanner rowScanner) (User, error) {
 		&user.LastName,
 		&user.Phone,
 		&user.Gender,
+		&favText,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
 		return User{}, err
+	}
+
+	if favText.Valid && favText.String != "" {
+		parts := strings.Split(favText.String, ",")
+		user.FavoriteProductIDs = make([]int, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			v, err := strconv.Atoi(p)
+			if err != nil {
+				return User{}, err
+			}
+			user.FavoriteProductIDs = append(user.FavoriteProductIDs, v)
+		}
 	}
 
 	if createdAt.Valid {

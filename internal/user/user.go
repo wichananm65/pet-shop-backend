@@ -1,5 +1,16 @@
 package user
 
+type FavoriteProduct struct {
+	ProductID     int     `json:"productID"`
+	ProductName   *string `json:"productName,omitempty"`
+	ProductNameTH *string `json:"productNameTH,omitempty"`
+	ProductDesc   *string `json:"productDesc,omitempty"`
+	ProductDescTH *string `json:"productDescTH,omitempty"`
+	ProductPrice  *int    `json:"productPrice,omitempty"`
+	ProductImg    *string `json:"productImg,omitempty"`
+	Score         *int    `json:"score,omitempty"`
+}
+
 type User struct {
 	ID            int    `json:"userId"`
 	Email         string `json:"email"`

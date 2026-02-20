@@ -17,6 +17,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/wichananm65/pet-shop-backend/internal/banner"
 	"github.com/wichananm65/pet-shop-backend/internal/category"
+	"github.com/wichananm65/pet-shop-backend/internal/favorite"
 	"github.com/wichananm65/pet-shop-backend/internal/product"
 	"github.com/wichananm65/pet-shop-backend/internal/recommended"
 	shoppingmall "github.com/wichananm65/pet-shop-backend/internal/shopping-mall"
@@ -83,7 +84,11 @@ func main() {
 		}
 	}
 
-	userHandler := buildUserHandler(db)
+	// create user repo/service/handler so we can share the user service with the
+	// new `favorite` handler (keeps favorite responsibilities isolated).
+	userRepo := user.NewPostgresRepository(db)
+	userService := user.NewService(userRepo)
+	userHandler := user.NewHandler(userService)
 	productHandler := buildProductHandler(db)
 	jwtSecret := os.Getenv("JWT_SECRET")
 
@@ -180,7 +185,7 @@ func main() {
 	})
 
 	// public endpoint to serve product image bytes or fallback to file/redirect
-	app.Get("/api/v1/product/:id/image", func(c *fiber.Ctx) error {
+	app.Get("/api/v1/product/:id<[0-9]+>/image", func(c *fiber.Ctx) error {
 		idStr := c.Params("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
@@ -212,13 +217,38 @@ func main() {
 	app.Use(checkMiddleware)
 	app.Use(jwtware.New(jwtware.Config{
 		SigningKey: []byte(jwtSecret),
+		// allow unauthenticated GET requests for numeric product details and images
+		Filter: func(c *fiber.Ctx) bool {
+			// allow unauthenticated GETs for numeric product id paths
+			p := c.Path()
+			fmt.Printf("[DEBUG] jwt.Filter invoked — method=%s path=%s\n", c.Method(), p)
+			if c.Method() != "GET" {
+				fmt.Printf("[DEBUG] jwt.Filter -> not GET, require auth\n")
+				return false
+			}
+			if strings.HasPrefix(p, "/api/v1/product/") {
+				rest := strings.TrimPrefix(p, "/api/v1/product/")
+				seg := strings.SplitN(rest, "/", 2)[0]
+				if _, err := strconv.Atoi(seg); err == nil {
+					fmt.Printf("[DEBUG] jwt.Filter -> public product GET, skipping JWT: id=%s\n", seg)
+					return true // skip JWT check for public product GETs
+				}
+			}
+			fmt.Printf("[DEBUG] jwt.Filter -> require auth\n")
+			return false
+		},
 	}))
 
 	userHandler.RegisterProtectedRoutes(app)
+	// favorites are handled by a dedicated handler with its own repository/service
+	favoriteRepo := favorite.NewPostgresRepository(db)
+	favoriteService := favorite.NewService(favoriteRepo)
+	favoriteHandler := favorite.NewHandler(favoriteService)
+	favoriteHandler.RegisterProtectedRoutes(app)
 	productHandler.RegisterProtectedRoutes(app)
 
 	// protected endpoint to upload and persist image bytes into Postgres
-	app.Post("/api/v1/product/:id/image", func(c *fiber.Ctx) error {
+	app.Post("/api/v1/product/:id<[0-9]+>/image", func(c *fiber.Ctx) error {
 		idStr := c.Params("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
@@ -275,12 +305,6 @@ func mustOpenDB() *sql.DB {
 	}
 
 	return db
-}
-
-func buildUserHandler(db *sql.DB) *user.Handler {
-	userRepo := user.NewPostgresRepository(db)
-	userService := user.NewService(userRepo)
-	return user.NewHandler(userService)
 }
 
 func buildProductHandler(db *sql.DB) *product.Handler {

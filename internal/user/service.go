@@ -1,6 +1,7 @@
 package user
 
 import (
+	"log"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -67,6 +68,12 @@ func (s *Service) Authenticate(email, password string) (User, error) {
 	user, err := s.repo.GetByEmail(email)
 	if err != nil {
 		return User{}, ErrInvalidCredentials
+	}
+	// debug: log minimal password info when favorite array present (temporary)
+	// NOTE: this is debug-only; will not log full hash
+	if len(user.Password) > 0 {
+		// log minimal debug info to help diagnose sign-in issues (temporary)
+		log.Printf("[DEBUG] Authenticate: email=%s passwordLen=%d favoriteCount=%d", email, len(user.Password), len(user.FavoriteProductIDs))
 	}
 	// If stored password looks like a bcrypt hash, validate via bcrypt
 	if looksLikeBcrypt(user.Password) {
