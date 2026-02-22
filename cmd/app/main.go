@@ -16,8 +16,10 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
 	"github.com/wichananm65/pet-shop-backend/internal/banner"
+	"github.com/wichananm65/pet-shop-backend/internal/cart"
 	"github.com/wichananm65/pet-shop-backend/internal/category"
 	"github.com/wichananm65/pet-shop-backend/internal/favorite"
+	"github.com/wichananm65/pet-shop-backend/internal/address"
 	"github.com/wichananm65/pet-shop-backend/internal/product"
 	"github.com/wichananm65/pet-shop-backend/internal/recommended"
 	shoppingmall "github.com/wichananm65/pet-shop-backend/internal/shopping-mall"
@@ -42,6 +44,35 @@ func main() {
 	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_pic TEXT`); err != nil {
 		panic(err)
 	}
+	// ensure cart product id array exists for storing user cart (legacy)
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "cartProductId" integer[]`); err != nil {
+		panic(err)
+	}
+	// new JSONB map column for product->quantity. If existing column named cart is integer[]
+	// convert it to jsonb preserving quantities (treat duplicate entries as qty 1).
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS cart jsonb NOT NULL DEFAULT '{}'`); err != nil {
+		panic(err)
+	}
+	// attempt conversion from integer[] to jsonb if the type differs
+	if _, err := db.Exec(`ALTER TABLE users
+    ALTER COLUMN cart TYPE jsonb
+    USING to_jsonb(coalesce(cart, ARRAY[]::integer[]))`); err != nil {
+		// ignore errors in case column already jsonb or conversion not applicable
+	}
+	// if some rows still hold a JSON array (e.g. [1,1,1]), collapse to map with counts
+	if _, err := db.Exec(`UPDATE users
+    SET cart = (
+        SELECT jsonb_object_agg(elem::text, cnt)
+        FROM (
+            SELECT elem, count(*) AS cnt
+            FROM unnest(cart::int[]) AS elem
+            GROUP BY elem
+        ) sub
+    )
+    WHERE jsonb_typeof(cart) = 'array'`); err != nil {
+		// not fatal
+		fmt.Printf("warning: cart normalization failed: %v\n", err)
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS banner (banner_id SERIAL PRIMARY KEY, banner_img TEXT, banner_link TEXT, banner_alt TEXT, ord INT)`); err != nil {
 		panic(err)
 	}
@@ -65,6 +96,19 @@ func main() {
 
 	// ensure category table exists; seed with public/Category images when empty
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS category ("categoryID" SERIAL PRIMARY KEY, "categoryName" TEXT, "categoryImg" TEXT, ord INT)`); err != nil {
+		panic(err)
+	}
+
+	// address table for storing user addresses
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS address (
+		address_id SERIAL PRIMARY KEY,
+		user_id INT NOT NULL,
+		address_desc TEXT,
+		phone TEXT,
+		address_name TEXT,
+		created_at TEXT,
+		updated_at TEXT
+	)`); err != nil {
 		panic(err)
 	}
 	var categoryCount int
@@ -249,6 +293,19 @@ func main() {
 	favoriteService := favorite.NewService(favoriteRepo)
 	favoriteHandler := favorite.NewHandler(favoriteService)
 	favoriteHandler.RegisterProtectedRoutes(app)
+
+	// address endpoints
+	addressRepo := address.NewPostgresRepository(db)
+	addressService := address.NewService(addressRepo)
+	addressHandler := address.NewHandler(addressService)
+	addressHandler.RegisterProtectedRoutes(app)
+
+	// cart endpoints
+	cartRepo := cart.NewPostgresRepository(db)
+	cartService := cart.NewService(cartRepo)
+	cartHandler := cart.NewHandler(cartService)
+	cartHandler.RegisterProtectedRoutes(app)
+
 	productHandler.RegisterProtectedRoutes(app)
 
 	// protected endpoint to upload and persist image bytes into Postgres

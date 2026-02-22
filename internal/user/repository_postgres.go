@@ -2,6 +2,7 @@ package user
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strconv"
 	"strings"
 )
@@ -16,17 +17,17 @@ type rowScanner interface {
 
 const (
 	listUsersQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
 		FROM users
 		ORDER BY "userId"
 	`
 	getUserByIDQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
 		FROM users
 		WHERE "userId" = $1
 	`
 	getUserByEmailQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
 		FROM users
 		WHERE email = $1
 	`
@@ -186,9 +187,11 @@ func (r *PostgresRepository) CreateCartWithID(cartID int) error {
 func scanUser(scanner rowScanner) (User, error) {
 	user := User{}
 	var favText sql.NullString
+	var cartJSON sql.NullString
 	var avatar sql.NullString
 	var createdAt sql.NullString
 	var updatedAt sql.NullString
+
 	if err := scanner.Scan(
 		&user.ID,
 		&user.Email,
@@ -199,6 +202,7 @@ func scanUser(scanner rowScanner) (User, error) {
 		&user.Gender,
 		&avatar,
 		&favText,
+		&cartJSON,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
@@ -222,6 +226,34 @@ func scanUser(scanner rowScanner) (User, error) {
 				return User{}, err
 			}
 			user.FavoriteProductIDs = append(user.FavoriteProductIDs, v)
+		}
+	}
+
+	if cartJSON.Valid && cartJSON.String != "" {
+		// try map first; if legacy integer array stored, handle that too
+		var rawMap map[string]int
+		if err := json.Unmarshal([]byte(cartJSON.String), &rawMap); err == nil {
+			user.Cart = make(map[int]int, len(rawMap))
+			user.CartProductIDs = make([]int, 0, len(rawMap))
+			for k, qty := range rawMap {
+				pid, err := strconv.Atoi(k)
+				if err != nil {
+					return User{}, err
+				}
+				user.Cart[pid] = qty
+				user.CartProductIDs = append(user.CartProductIDs, pid)
+			}
+		} else {
+			// attempt array unmarshalling fallback
+			var arr []int
+			if err2 := json.Unmarshal([]byte(cartJSON.String), &arr); err2 == nil {
+				user.Cart = make(map[int]int, len(arr))
+				user.CartProductIDs = make([]int, 0, len(arr))
+				for _, pid := range arr {
+					user.Cart[pid]++
+					user.CartProductIDs = append(user.CartProductIDs, pid)
+				}
+			}
 		}
 	}
 

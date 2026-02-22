@@ -22,9 +22,11 @@ type User struct {
 	MainAddressID *int   `json:"mainAddressId,omitempty"`
 	AddressIDs    []int  `json:"addressId,omitempty"`
 
-	OrderIDs           []int   `json:"orderId,omitempty"`
-	FavoriteProductIDs []int   `json:"favoriteProductId,omitempty"`
-	AvatarPic          *string `json:"avatarPic,omitempty"`
-	CreatedAt          string  `json:"createAt,omitempty"`
-	UpdatedAt          string  `json:"updateAt,omitempty"`
+	OrderIDs           []int       `json:"orderId,omitempty"`
+	FavoriteProductIDs []int       `json:"favoriteProductId,omitempty"`
+	CartProductIDs     []int       `json:"cartProductId,omitempty"`
+	Cart               map[int]int `json:"cart,omitempty"`
+	AvatarPic          *string     `json:"avatarPic,omitempty"`
+	CreatedAt          string      `json:"createAt,omitempty"`
+	UpdatedAt          string      `json:"updateAt,omitempty"`
 }
