@@ -158,11 +158,12 @@ func (h *Handler) getProfile(c *fiber.Ctx) error {
 
 // profileUpdateRequest represents the fields the client may send to update.
 type profileUpdateRequest struct {
-	FirstName    *string `json:"firstName,omitempty"`
-	LastName     *string `json:"lastName,omitempty"`
-	Phone        *string `json:"phone,omitempty"`
-	Gender       *string `json:"gender,omitempty"`
-	RemoveAvatar *string `json:"removeAvatar,omitempty"`
+	FirstName     *string `json:"firstName,omitempty"`
+	LastName      *string `json:"lastName,omitempty"`
+	Phone         *string `json:"phone,omitempty"`
+	Gender        *string `json:"gender,omitempty"`
+	MainAddressID *int    `json:"mainAddressId,omitempty"`
+	RemoveAvatar  *string `json:"removeAvatar,omitempty"`
 }
 
 func (h *Handler) updateProfile(c *fiber.Ctx) error {
@@ -199,6 +200,11 @@ func (h *Handler) updateProfile(c *fiber.Ctx) error {
 		if v := c.FormValue("gender"); v != "" {
 			existing.Gender = v
 		}
+		if v := c.FormValue("mainAddressId"); v != "" {
+			if id, err := strconv.Atoi(v); err == nil {
+				existing.MainAddressID = &id
+			}
+		}
 		rmFlag = c.FormValue("removeAvatar")
 	} else {
 		// normal JSON body
@@ -215,6 +221,9 @@ func (h *Handler) updateProfile(c *fiber.Ctx) error {
 		}
 		if payload.Gender != nil {
 			existing.Gender = *payload.Gender
+		}
+		if payload.MainAddressID != nil {
+			existing.MainAddressID = payload.MainAddressID
 		}
 		if payload.RemoveAvatar != nil && *payload.RemoveAvatar == "true" {
 			rmFlag = "true"

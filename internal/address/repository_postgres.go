@@ -1,97 +1,90 @@
 package address
 
 import (
-    "database/sql"
+	"database/sql"
 )
 
 // Postgres repository stores addresses in a dedicated table with a foreign
 // key to users.
-// Table layout expected:
-//   address_id serial primary key,
-//   user_id int not null,
-//   address_desc text,
-//   phone text,
-//   address_name text,
-//   created_at text,
-//   updated_at text
-
-type PostgresRepository struct {
-    db *sql.DB
-}
+// Table layout expected (camelCase column names):
+//   "addressID" serial primary key,
+//   "userID" int not null,
+//   "addressDesc" text,
+//   "phone" text,
+//   "addressName" text,
+//   "createdAt" text,
+//   "updatedAt" text
 
 const (
-    insertAddressQuery = `
-        INSERT INTO address (user_id, address_desc, phone, address_name, created_at, updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6)
-        RETURNING address_id, user_id, address_desc, phone, address_name, created_at, updated_at
-    `
-    updateAddressQuery = `
-        UPDATE address
-        SET address_desc=$3, phone=$4, address_name=$5, updated_at=$6
-        WHERE user_id=$1 AND address_id=$2
-        RETURNING address_id, user_id, address_desc, phone, address_name, created_at, updated_at
-    `
-    deleteAddressQuery = `
-        DELETE FROM address WHERE user_id=$1 AND address_id=$2
-    `
+	insertAddressQuery = `INSERT INTO address ("userID", "addressDesc", "phone", "addressName", "createdAt", "updatedAt")
+        VALUES ($1,$2,$3,$4,$5,$6) RETURNING "addressID"`
+	updateAddressQuery = `UPDATE address SET "addressDesc"=$1, "phone"=$2, "addressName"=$3, "updatedAt"=$4
+        WHERE "userID"=$5 AND "addressID"=$6 RETURNING "addressID"`
+	deleteAddressQuery = `DELETE FROM address WHERE "userID"=$1 AND "addressID"=$2`
 )
 
+type PostgresRepository struct {
+	db *sql.DB
+}
+
 func NewPostgresRepository(db *sql.DB) *PostgresRepository {
-    return &PostgresRepository{db: db}
+	return &PostgresRepository{db: db}
 }
 
 func (r *PostgresRepository) GetAddresses(userID int) ([]Address, error) {
-    if userID <= 0 {
-        return nil, ErrNotFound
-    }
-    rows, err := r.db.Query(`SELECT address_id, user_id, address_desc, phone, address_name, created_at, updated_at FROM address WHERE user_id = $1`, userID)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	if userID <= 0 {
+		return nil, ErrNotFound
+	}
+	rows, err := r.db.Query(`SELECT "addressID", "userID", "addressDesc", "phone", "addressName", "createdAt", "updatedAt" FROM address WHERE "userID" = $1`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    out := make([]Address, 0)
-    for rows.Next() {
-        var a Address
-        if err := rows.Scan(&a.AddressID, &a.UserID, &a.AddressDesc, &a.Phone, &a.AddressName, &a.CreatedAt, &a.UpdatedAt); err != nil {
-            return nil, err
-        }
-        out = append(out, a)
-    }
+	out := make([]Address, 0)
+	for rows.Next() {
+		var a Address
+		if err := rows.Scan(&a.AddressID, &a.UserID, &a.AddressDesc, &a.Phone, &a.AddressName, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
 
-    return out, nil
+	return out, nil
 }
 
-func (r *PostgresRepository) AddAddress(userID int, addressDesc, phone, addressName string) (Address, error) {
-    var a Address
-    if err := r.db.QueryRow(insertAddressQuery, userID, addressDesc, phone, addressName, "", "").Scan(&a.AddressID, &a.UserID, &a.AddressDesc, &a.Phone, &a.AddressName, &a.CreatedAt, &a.UpdatedAt); err != nil {
-        if err == sql.ErrNoRows {
-            return a, ErrNotFound
-        }
-        return a, err
-    }
-    return a, nil
+func (r *PostgresRepository) AddAddress(userID int, desc, phone, name string, updatedAt string) (Address, error) {
+	if userID <= 0 {
+		return Address{}, ErrNotFound
+	}
+	var id int
+	if err := r.db.QueryRow(insertAddressQuery, userID, desc, phone, name, updatedAt, updatedAt).Scan(&id); err != nil {
+		return Address{}, err
+	}
+	return Address{AddressID: id, UserID: userID, AddressDesc: desc, Phone: phone, AddressName: name, CreatedAt: updatedAt, UpdatedAt: updatedAt}, nil
 }
 
-func (r *PostgresRepository) UpdateAddress(userID int, addressID int, addressDesc, phone, addressName string) (Address, error) {
-    var a Address
-    if err := r.db.QueryRow(updateAddressQuery, userID, addressID, addressDesc, phone, addressName, "").Scan(&a.AddressID, &a.UserID, &a.AddressDesc, &a.Phone, &a.AddressName, &a.CreatedAt, &a.UpdatedAt); err != nil {
-        if err == sql.ErrNoRows {
-            return a, ErrNotFound
-        }
-        return a, err
-    }
-    return a, nil
+func (r *PostgresRepository) UpdateAddress(userID, addressID int, desc, phone, name string, updatedAt string) (Address, error) {
+	if userID <= 0 || addressID <= 0 {
+		return Address{}, ErrNotFound
+	}
+	var id int
+	err := r.db.QueryRow(updateAddressQuery, desc, phone, name, updatedAt, userID, addressID).Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return Address{}, ErrNotFound
+		}
+		return Address{}, err
+	}
+	return Address{AddressID: id, UserID: userID, AddressDesc: desc, Phone: phone, AddressName: name, UpdatedAt: updatedAt}, nil
 }
 
-func (r *PostgresRepository) DeleteAddress(userID int, addressID int) error {
-    res, err := r.db.Exec(deleteAddressQuery, userID, addressID)
-    if err != nil {
-        return err
-    }
-    cnt, _ := res.RowsAffected()
-    if cnt == 0 {
-        return ErrNotFound
-    }
-    return nil
+func (r *PostgresRepository) DeleteAddress(userID, addressID int) error {
+	if userID <= 0 || addressID <= 0 {
+		return ErrNotFound
+	}
+	if _, err := r.db.Exec(deleteAddressQuery, userID, addressID); err != nil {
+		return err
+	}
+	return nil
 }

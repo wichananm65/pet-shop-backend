@@ -15,11 +15,11 @@ import (
 	jwtware "github.com/gofiber/jwt/v2"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
+	"github.com/wichananm65/pet-shop-backend/internal/address"
 	"github.com/wichananm65/pet-shop-backend/internal/banner"
 	"github.com/wichananm65/pet-shop-backend/internal/cart"
 	"github.com/wichananm65/pet-shop-backend/internal/category"
 	"github.com/wichananm65/pet-shop-backend/internal/favorite"
-	"github.com/wichananm65/pet-shop-backend/internal/address"
 	"github.com/wichananm65/pet-shop-backend/internal/product"
 	"github.com/wichananm65/pet-shop-backend/internal/recommended"
 	shoppingmall "github.com/wichananm65/pet-shop-backend/internal/shopping-mall"
@@ -42,6 +42,10 @@ func main() {
 	// ensure banner table exists; seed with public/banner images when empty
 	// ensure user avatar column exists
 	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_pic TEXT`); err != nil {
+		panic(err)
+	}
+	// add mainAddressId to users if missing
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS "mainAddressId" INT`); err != nil {
 		panic(err)
 	}
 	// ensure cart product id array exists for storing user cart (legacy)
@@ -99,17 +103,47 @@ func main() {
 		panic(err)
 	}
 
-	// address table for storing user addresses
+	// address table for storing user addresses (camelCase column names to match project convention)
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS address (
-		address_id SERIAL PRIMARY KEY,
-		user_id INT NOT NULL,
-		address_desc TEXT,
-		phone TEXT,
-		address_name TEXT,
-		created_at TEXT,
-		updated_at TEXT
+		"addressID" SERIAL PRIMARY KEY,
+		"userID" INT NOT NULL,
+		"addressDesc" TEXT,
+		"phone" TEXT,
+		"addressName" TEXT,
+		"createdAt" TEXT,
+		"updatedAt" TEXT
 	)`); err != nil {
 		panic(err)
+	}
+	// if previous installations used snake_case column names, rename them to camelCase
+	if _, err := db.Exec(`DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='address' AND column_name='address_id') THEN
+            ALTER TABLE address RENAME COLUMN address_id TO "addressID";
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='address' AND column_name='user_id') THEN
+            ALTER TABLE address RENAME COLUMN user_id TO "userID";
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='address' AND column_name='address_desc') THEN
+            ALTER TABLE address RENAME COLUMN address_desc TO "addressDesc";
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='address' AND column_name='address_name') THEN
+            ALTER TABLE address RENAME COLUMN address_name TO "addressName";
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='address' AND column_name='created_at') THEN
+            ALTER TABLE address RENAME COLUMN created_at TO "createdAt";
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='address' AND column_name='updated_at') THEN
+            ALTER TABLE address RENAME COLUMN updated_at TO "updatedAt";
+        END IF;
+    END
+    $$;`); err != nil {
+		// non-fatal - we can ignore failures here
+		fmt.Printf("warning: could not rename address columns: %v\n", err)
+	}
+	// ensure userID column exists after possible renames; add if missing to avoid SQL errors
+	if _, err := db.Exec(`ALTER TABLE address ADD COLUMN IF NOT EXISTS "userID" INT NOT NULL DEFAULT 0`); err != nil {
+		fmt.Printf("warning: could not add missing userID column: %v\n", err)
 	}
 	var categoryCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM category`).Scan(&categoryCount); err == nil {

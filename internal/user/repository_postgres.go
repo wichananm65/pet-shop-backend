@@ -17,17 +17,17 @@ type rowScanner interface {
 
 const (
 	listUsersQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
 		FROM users
 		ORDER BY "userId"
 	`
 	getUserByIDQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
 		FROM users
 		WHERE "userId" = $1
 	`
 	getUserByEmailQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
 		FROM users
 		WHERE email = $1
 	`
@@ -44,6 +44,7 @@ const (
 			"lastName" = $3,
 			phone = $4,
 			gender = $5,
+			"mainAddressId" = $9,
 			avatar_pic = $8,
 			"updateAt" = $6
 		WHERE "userId" = $7
@@ -147,6 +148,7 @@ func (r *PostgresRepository) Update(id int, userUpdate User) (User, error) {
 		userUpdate.UpdatedAt,
 		id,
 		avatarArg,
+		userUpdate.MainAddressID,
 	)
 	if err != nil {
 		return User{}, err
@@ -189,6 +191,7 @@ func scanUser(scanner rowScanner) (User, error) {
 	var favText sql.NullString
 	var cartJSON sql.NullString
 	var avatar sql.NullString
+	var mainAddr sql.NullInt64
 	var createdAt sql.NullString
 	var updatedAt sql.NullString
 
@@ -200,6 +203,7 @@ func scanUser(scanner rowScanner) (User, error) {
 		&user.LastName,
 		&user.Phone,
 		&user.Gender,
+		&mainAddr,
 		&avatar,
 		&favText,
 		&cartJSON,
@@ -207,6 +211,10 @@ func scanUser(scanner rowScanner) (User, error) {
 		&updatedAt,
 	); err != nil {
 		return User{}, err
+	}
+	if mainAddr.Valid {
+		v := int(mainAddr.Int64)
+		user.MainAddressID = &v
 	}
 
 	if avatar.Valid {

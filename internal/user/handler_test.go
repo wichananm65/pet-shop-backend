@@ -33,7 +33,7 @@ func makeAppWithUserHandler(uHandler *Handler) *fiber.App {
 }
 
 func TestProfileRoute_RegistrationAndAuth(t *testing.T) {
-	seed := []User{{ID: 7, Email: "j@example.com", FirstName: "Jenny", LastName: "Test", Phone: "123", Gender: "F"}}
+	seed := []User{{ID: 7, Email: "j@example.com", FirstName: "Jenny", LastName: "Test", Phone: "123", Gender: "F", MainAddressID: func() *int { i := 99; return &i }()}}
 	repo := NewInMemoryRepository(seed)
 	service := NewService(repo)
 	handler := NewHandler(service)
@@ -77,6 +77,9 @@ func TestProfileRoute_RegistrationAndAuth(t *testing.T) {
 	if !strings.Contains(body, "j@example.com") {
 		t.Fatalf("response body does not contain expected email, got %s", body)
 	}
+	if !strings.Contains(body, "mainAddressId") {
+		t.Fatalf("response body does not include mainAddressId, got %s", body)
+	}
 	if strings.Contains(body, "password") {
 		t.Fatalf("response body should not expose password field")
 	}
@@ -108,6 +111,26 @@ func TestProfileUpdateAndAvatar(t *testing.T) {
 		if !strings.Contains(string(b), "New") {
 			t.Fatalf("updated response missing new name for %s: %s", method, string(b))
 		}
+	}
+	// setting mainAddressId should be supported
+	mainJSON := `{"mainAddressId":42}`
+	reqMain := httptest.NewRequest("PATCH", "/api/v1/profile", strings.NewReader(mainJSON))
+	reqMain.Header.Set("X-User-ID", "15")
+	reqMain.Header.Set("Content-Type", "application/json")
+	resMain, err := app.Test(reqMain)
+	if err != nil {
+		t.Fatalf("main address update failed: %v", err)
+	}
+	if resMain.StatusCode != fiber.StatusOK {
+		t.Fatalf("expected 200 OK on main address update, got %d", resMain.StatusCode)
+	}
+	bMain, _ := io.ReadAll(resMain.Body)
+	if !strings.Contains(string(bMain), "mainAddressId") {
+		t.Fatalf("response missing mainAddressId: %s", string(bMain))
+	}
+	uFinal, _ := repo.GetByID(15)
+	if uFinal.MainAddressID == nil || *uFinal.MainAddressID != 42 {
+		t.Fatalf("mainAddressId not persisted: %+v", uFinal)
 	}
 
 	// avatar upload: create a fake file by POSTing to the dedicated

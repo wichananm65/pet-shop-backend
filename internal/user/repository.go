@@ -118,6 +118,9 @@ func (r *InMemoryRepository) Update(id int, userUpdate User) (User, error) {
 			user.LastName = userUpdate.LastName
 			user.Phone = userUpdate.Phone
 			user.Gender = userUpdate.Gender
+			// new fields
+			user.MainAddressID = userUpdate.MainAddressID
+			user.AddressIDs = userUpdate.AddressIDs
 			// always overwrite avatar pointer; nil value means clear the avatar.
 			user.AvatarPic = userUpdate.AvatarPic
 			if userUpdate.Password != "" {
