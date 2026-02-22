@@ -92,6 +92,12 @@ func (r *InMemoryRepository) Create(user User) (User, error) {
 		r.nextID++
 	}
 
+	// ensure avatar pointer is copied
+	if user.AvatarPic != nil {
+		v := *user.AvatarPic
+		user.AvatarPic = &v
+	}
+
 	r.users = append(r.users, user)
 	return user, nil
 }
@@ -112,6 +118,8 @@ func (r *InMemoryRepository) Update(id int, userUpdate User) (User, error) {
 			user.LastName = userUpdate.LastName
 			user.Phone = userUpdate.Phone
 			user.Gender = userUpdate.Gender
+			// always overwrite avatar pointer; nil value means clear the avatar.
+			user.AvatarPic = userUpdate.AvatarPic
 			if userUpdate.Password != "" {
 				user.Password = userUpdate.Password
 			}

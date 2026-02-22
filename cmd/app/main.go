@@ -38,6 +38,10 @@ func main() {
 	}
 
 	// ensure banner table exists; seed with public/banner images when empty
+	// ensure user avatar column exists
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_pic TEXT`); err != nil {
+		panic(err)
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS banner (banner_id SERIAL PRIMARY KEY, banner_img TEXT, banner_link TEXT, banner_alt TEXT, ord INT)`); err != nil {
 		panic(err)
 	}

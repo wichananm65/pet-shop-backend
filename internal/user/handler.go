@@ -1,8 +1,10 @@
 package user
 
 import (
+	"mime/multipart"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -42,6 +44,14 @@ func (h *Handler) RegisterProtectedRoutes(app *fiber.App) {
 	app.Post("/users", h.createUser)
 	app.Put("/user/:id", h.updateUser)
 	app.Delete("/user/:id", h.deleteUser)
+	// profile endpoint returns the current user based on JWT claims
+	app.Get("/api/v1/profile", h.getProfile)
+	// support both PUT and PATCH for updating profile fields. the handler
+	// accepts partial payloads so PATCH behaviour is satisfied.
+	app.Put("/api/v1/profile", h.updateProfile)
+	app.Patch("/api/v1/profile", h.updateProfile)
+	app.Post("/api/v1/profile/avatar", h.uploadAvatar)
+	app.Delete("/api/v1/profile/avatar", h.removeAvatar)
 
 }
 
@@ -129,6 +139,195 @@ func (h *Handler) getUser(c *fiber.Ctx) error {
 	return c.JSON(sanitizeUser(user))
 }
 
+// getProfile returns the user record for the currently authenticated user.
+// It reads the user_id claim from the JWT and then loads the user from the
+// service. The returned object is sanitized so the password field is blank.
+func (h *Handler) getProfile(c *fiber.Ctx) error {
+	userID, err := GetUserIDFromCtx(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthorized"})
+	}
+
+	user, err := h.service.GetByID(userID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "user not found"})
+	}
+
+	return c.JSON(sanitizeUser(user))
+}
+
+// profileUpdateRequest represents the fields the client may send to update.
+type profileUpdateRequest struct {
+	FirstName    *string `json:"firstName,omitempty"`
+	LastName     *string `json:"lastName,omitempty"`
+	Phone        *string `json:"phone,omitempty"`
+	Gender       *string `json:"gender,omitempty"`
+	RemoveAvatar *string `json:"removeAvatar,omitempty"`
+}
+
+func (h *Handler) updateProfile(c *fiber.Ctx) error {
+	userID, err := GetUserIDFromCtx(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthorized"})
+	}
+
+	var rmFlag string
+	existing, err := h.service.GetByID(userID)
+	// detect multipart via header prefix rather than c.Is which can misbehave
+	ct := c.Get("Content-Type")
+	isMultipart := strings.HasPrefix(ct, "multipart/form-data")
+	// if this is a multipart request, parse it so FormValue works reliably
+	if isMultipart {
+		c.MultipartForm() // ignore error
+	}
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "user not found"})
+	}
+
+	// support both JSON and multipart requests
+	if isMultipart {
+		// pull values from the form directly
+		if v := c.FormValue("firstName"); v != "" {
+			existing.FirstName = v
+		}
+		if v := c.FormValue("lastName"); v != "" {
+			existing.LastName = v
+		}
+		if v := c.FormValue("phone"); v != "" {
+			existing.Phone = v
+		}
+		if v := c.FormValue("gender"); v != "" {
+			existing.Gender = v
+		}
+		rmFlag = c.FormValue("removeAvatar")
+	} else {
+		// normal JSON body
+		var payload profileUpdateRequest
+		c.BodyParser(&payload) // ignore error
+		if payload.FirstName != nil {
+			existing.FirstName = *payload.FirstName
+		}
+		if payload.LastName != nil {
+			existing.LastName = *payload.LastName
+		}
+		if payload.Phone != nil {
+			existing.Phone = *payload.Phone
+		}
+		if payload.Gender != nil {
+			existing.Gender = *payload.Gender
+		}
+		if payload.RemoveAvatar != nil && *payload.RemoveAvatar == "true" {
+			rmFlag = "true"
+		}
+	}
+
+	// client may signal that the avatar should be removed rather than
+	// uploaded. this takes precedence over any file that might be present.
+	if rmFlag != "" {
+		existing.AvatarPic = nil
+	} else {
+		// if the client sent a file (multipart request) then treat it as an avatar
+		// upload and update avatar path at the same time. support both the
+		// descriptive "avatarPic" field name and the generic "file" key.
+		var file *multipart.FileHeader
+		if f, ferr := c.FormFile("avatarPic"); ferr == nil && f != nil {
+			file = f
+		} else if f, ferr := c.FormFile("file"); ferr == nil && f != nil {
+			file = f
+		}
+		if file != nil {
+			f, err := file.Open()
+			if err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+			}
+			defer f.Close()
+			path := "/uploads/avatars/" + strconv.Itoa(userID) + "_" + file.Filename
+			dest := "." + path
+			if err := os.MkdirAll("./uploads/avatars", 0755); err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+			}
+			if err := c.SaveFile(file, dest); err != nil {
+				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+			}
+			existing.AvatarPic = &path
+		}
+	}
+
+	updated, err := h.service.Update(userID, existing)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+	}
+	// build explicit response so avatarPic is always present (even if nil)
+	resp := sanitizeUser(updated)
+	return c.JSON(fiber.Map{"avatarPic": resp.AvatarPic, "user": resp})
+}
+
+func (h *Handler) uploadAvatar(c *fiber.Ctx) error {
+	userID, err := GetUserIDFromCtx(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthorized"})
+	}
+
+	// clients may send the avatar as either the generic "file" key or the
+	// more descriptive "avatarPic" key depending on implementation. prefer
+	// the latter if present for clarity.
+	var file *multipart.FileHeader
+	if f, e := c.FormFile("avatarPic"); e == nil && f != nil {
+		file = f
+	} else if f, e := c.FormFile("file"); e == nil && f != nil {
+		file = f
+	}
+	if file == nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "file is required"})
+	}
+	f, err := file.Open()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+	}
+	defer f.Close()
+
+	// save under uploads/avatars/userID_filename
+	path := "/uploads/avatars/" + strconv.Itoa(userID) + "_" + file.Filename
+	dest := "." + path
+	// ensure directory exists
+	if err := os.MkdirAll("./uploads/avatars", 0755); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+	}
+	if err := c.SaveFile(file, dest); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+	}
+
+	// update user record
+	existing, err := h.service.GetByID(userID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "user not found"})
+	}
+	existing.AvatarPic = &path
+	updated, err := h.service.Update(userID, existing)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+	}
+	return c.JSON(fiber.Map{"avatarPic": path, "user": sanitizeUser(updated)})
+}
+
+func (h *Handler) removeAvatar(c *fiber.Ctx) error {
+	userID, err := GetUserIDFromCtx(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthorized"})
+	}
+
+	existing, err := h.service.GetByID(userID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "user not found"})
+	}
+	existing.AvatarPic = nil
+	updated, err := h.service.Update(userID, existing)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+	}
+	return c.JSON(fiber.Map{"avatarPic": nil, "user": sanitizeUser(updated)})
+}
+
 func (h *Handler) createUser(c *fiber.Ctx) error {
 	user := new(User)
 	if err := c.BodyParser(user); err != nil {
@@ -177,6 +376,43 @@ func (h *Handler) deleteUser(c *fiber.Ctx) error {
 
 func (r registerRequest) isMissingRequiredFields() bool {
 	return r.Email == "" || r.Password == "" || r.FirstName == "" || r.LastName == "" || r.Phone == "" || r.Gender == ""
+}
+
+// GetUserIDFromCtx extracts the user_id claim from the JWT token stored
+// in `c.Locals("user")`. This duplicate logic used by several packages,
+// so we export it here for reuse.
+func GetUserIDFromCtx(c *fiber.Ctx) (int, error) {
+	u := c.Locals("user")
+	if u == nil {
+		return 0, fiber.ErrUnauthorized
+	}
+	tok, ok := u.(*jwt.Token)
+	if !ok {
+		return 0, fiber.ErrUnauthorized
+	}
+	claims, ok := tok.Claims.(jwt.MapClaims)
+	if !ok {
+		return 0, fiber.ErrUnauthorized
+	}
+	if raw, ok := claims["user_id"]; ok {
+		switch v := raw.(type) {
+		case float64:
+			return int(v), nil
+		case int:
+			return v, nil
+		case int64:
+			return int(v), nil
+		case string:
+			id, err := strconv.Atoi(v)
+			if err != nil {
+				return 0, fiber.ErrUnauthorized
+			}
+			return id, nil
+		default:
+			return 0, fiber.ErrUnauthorized
+		}
+	}
+	return 0, fiber.ErrUnauthorized
 }
 
 func sanitizeUser(user User) User {

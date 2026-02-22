@@ -2,10 +2,8 @@ package favorite
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/golang-jwt/jwt/v4"
 	"github.com/wichananm65/pet-shop-backend/internal/user"
 )
 
@@ -29,41 +27,6 @@ type favoriteRequest struct {
 	ProductID int `json:"productId"`
 }
 
-// getUserIDFromCtx duplicates the small JWT extraction logic used elsewhere.
-func getUserIDFromCtx(c *fiber.Ctx) (int, error) {
-	u := c.Locals("user")
-	if u == nil {
-		return 0, fiber.ErrUnauthorized
-	}
-	tok, ok := u.(*jwt.Token)
-	if !ok {
-		return 0, fiber.ErrUnauthorized
-	}
-	claims, ok := tok.Claims.(jwt.MapClaims)
-	if !ok {
-		return 0, fiber.ErrUnauthorized
-	}
-	if raw, ok := claims["user_id"]; ok {
-		switch v := raw.(type) {
-		case float64:
-			return int(v), nil
-		case int:
-			return v, nil
-		case int64:
-			return int(v), nil
-		case string:
-			id, err := strconv.Atoi(v)
-			if err != nil {
-				return 0, fiber.ErrUnauthorized
-			}
-			return id, nil
-		default:
-			return 0, fiber.ErrUnauthorized
-		}
-	}
-	return 0, fiber.ErrUnauthorized
-}
-
 func (h *Handler) addFavorite(c *fiber.Ctx) error {
 	payload := new(favoriteRequest)
 	if err := c.BodyParser(payload); err != nil {
@@ -72,7 +35,7 @@ func (h *Handler) addFavorite(c *fiber.Ctx) error {
 	if payload.ProductID <= 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "invalid productId"})
 	}
-	userID, err := getUserIDFromCtx(c)
+	userID, err := user.GetUserIDFromCtx(c)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthorized"})
 	}
@@ -100,7 +63,7 @@ func (h *Handler) removeFavorite(c *fiber.Ctx) error {
 	if payload.ProductID <= 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "invalid productId"})
 	}
-	userID, err := getUserIDFromCtx(c)
+	userID, err := user.GetUserIDFromCtx(c)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthorized"})
 	}
@@ -122,7 +85,7 @@ func (h *Handler) removeFavorite(c *fiber.Ctx) error {
 
 func (h *Handler) getFavorites(c *fiber.Ctx) error {
 	fmt.Printf("[DEBUG] favorite.getFavorites invoked, remote=%s\n", c.IP())
-	userID, err := getUserIDFromCtx(c)
+	userID, err := user.GetUserIDFromCtx(c)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthorized"})
 	}

@@ -16,24 +16,24 @@ type rowScanner interface {
 
 const (
 	listUsersQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
 		FROM users
 		ORDER BY "userId"
 	`
 	getUserByIDQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
 		FROM users
 		WHERE "userId" = $1
 	`
 	getUserByEmailQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, "createAt", "updateAt"
 		FROM users
 		WHERE email = $1
 	`
 
 	insertUserQuery = `
-		INSERT INTO users (email, password, "firstName", "lastName", phone, gender, "createAt", "updateAt")
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO users (email, password, "firstName", "lastName", phone, gender, "createAt", "updateAt", avatar_pic)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING "userId"
 	`
 	updateUserQuery = `
@@ -43,6 +43,7 @@ const (
 			"lastName" = $3,
 			phone = $4,
 			gender = $5,
+			avatar_pic = $8,
 			"updateAt" = $6
 		WHERE "userId" = $7
 	`
@@ -100,6 +101,11 @@ func (r *PostgresRepository) GetByEmail(email string) (User, error) {
 
 func (r *PostgresRepository) Create(user User) (User, error) {
 	var id int
+	// avatarPic may be nil
+	avatarVal := sql.NullString{}
+	if user.AvatarPic != nil {
+		avatarVal = sql.NullString{String: *user.AvatarPic, Valid: true}
+	}
 	err := r.db.QueryRow(
 		insertUserQuery,
 		user.Email,
@@ -110,6 +116,7 @@ func (r *PostgresRepository) Create(user User) (User, error) {
 		user.Gender,
 		user.CreatedAt,
 		user.UpdatedAt,
+		avatarVal,
 	).Scan(&id)
 	if err != nil {
 		return User{}, err
@@ -120,6 +127,15 @@ func (r *PostgresRepository) Create(user User) (User, error) {
 }
 
 func (r *PostgresRepository) Update(id int, userUpdate User) (User, error) {
+	// if AvatarPic is nil, send a raw nil so that the database column is set to
+	// NULL; previous sql.NullString handling could result in an empty string
+	// instead of NULL which leads to a non-nil pointer when scanned.
+	var avatarArg interface{}
+	if userUpdate.AvatarPic != nil {
+		avatarArg = *userUpdate.AvatarPic
+	} else {
+		avatarArg = nil
+	}
 	result, err := r.db.Exec(
 		updateUserQuery,
 		userUpdate.Email,
@@ -129,6 +145,7 @@ func (r *PostgresRepository) Update(id int, userUpdate User) (User, error) {
 		userUpdate.Gender,
 		userUpdate.UpdatedAt,
 		id,
+		avatarArg,
 	)
 	if err != nil {
 		return User{}, err
@@ -169,6 +186,7 @@ func (r *PostgresRepository) CreateCartWithID(cartID int) error {
 func scanUser(scanner rowScanner) (User, error) {
 	user := User{}
 	var favText sql.NullString
+	var avatar sql.NullString
 	var createdAt sql.NullString
 	var updatedAt sql.NullString
 	if err := scanner.Scan(
@@ -179,11 +197,16 @@ func scanUser(scanner rowScanner) (User, error) {
 		&user.LastName,
 		&user.Phone,
 		&user.Gender,
+		&avatar,
 		&favText,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
 		return User{}, err
+	}
+
+	if avatar.Valid {
+		user.AvatarPic = &avatar.String
 	}
 
 	if favText.Valid && favText.String != "" {
