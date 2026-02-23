@@ -23,6 +23,7 @@ type CartItem struct {
 type Repository interface {
 	AddToCart(userID int, productID int, qty int, updatedAt string) ([]CartItem, error)
 	GetCart(userID int) ([]CartItem, error)
+	ClearCart(userID int, updatedAt string) error
 }
 
 // InMemoryRepository is used for tests and local scenarios.
@@ -80,4 +81,21 @@ func (r *InMemoryRepository) GetCart(userID int) ([]CartItem, error) {
 		}
 	}
 	return nil, ErrNotFound
+}
+
+// ClearCart empties a user's cart.
+func (r *InMemoryRepository) ClearCart(userID int, updatedAt string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, u := range r.users {
+		if u.ID == userID {
+			u.Cart = make(map[int]int)
+			if updatedAt != "" {
+				u.UpdatedAt = updatedAt
+			}
+			r.users[i] = u
+			return nil
+		}
+	}
+	return ErrNotFound
 }

@@ -2,6 +2,7 @@ package product
 
 import (
 	"errors"
+	"strconv"
 	"sync"
 )
 
@@ -12,6 +13,10 @@ var (
 type Repository interface {
 	List() []Product
 	GetByID(id int) (Product, error)
+	// ListByCategoryID returns all products belonging to the given category id.
+	// The implementation is free to interpret categories however makes sense
+	// internally; the public API needs to accept a numeric ID.
+	ListByCategoryID(catID int) []Product
 	// GetV1ByID returns the `products`-style product detail expected by the
 	// frontend v1 API: productID, productName, productNameTH, productPrice,
 	// productImg, productDesc, productDescTH, score and category.
@@ -29,6 +34,9 @@ type InMemoryRepository struct {
 	mu      sync.RWMutex
 	storage []Product
 	nextID  int
+	// optional mapping used by ListByCategoryID; tests can populate this
+	// to provide human-readable names associated with numeric IDs.
+	CategoryNames map[int]string
 }
 
 func NewInMemoryRepository(seed []Product) *InMemoryRepository {
@@ -55,6 +63,32 @@ func (r *InMemoryRepository) List() []Product {
 
 	out := make([]Product, len(r.storage))
 	copy(out, r.storage)
+	return out
+}
+
+// ListByCategoryID filters products by the provided category id. When the
+// optional CategoryNames map is populated the ID will first be translated to
+// a name; otherwise the numeric id is compared to the stored category string.
+// This keeps the in-memory behaviour flexible for testing.
+func (r *InMemoryRepository) ListByCategoryID(catID int) []Product {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []Product
+	name, hasName := r.CategoryNames[catID]
+	for _, p := range r.storage {
+		if p.Category == nil {
+			continue
+		}
+		if hasName {
+			if *p.Category == name {
+				out = append(out, p)
+			}
+		} else {
+			if *p.Category == strconv.Itoa(catID) {
+				out = append(out, p)
+			}
+		}
+	}
 	return out
 }
 

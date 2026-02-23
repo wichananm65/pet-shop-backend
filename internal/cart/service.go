@@ -26,3 +26,11 @@ func (s *Service) GetCart(userID int) ([]CartItem, error) {
 	}
 	return s.repo.GetCart(userID)
 }
+
+// ClearCart empties a user's cart and returns an error if something goes wrong.
+func (s *Service) ClearCart(userID int) error {
+	if userID <= 0 {
+		return ErrNotFound
+	}
+	return s.repo.ClearCart(userID, "")
+}

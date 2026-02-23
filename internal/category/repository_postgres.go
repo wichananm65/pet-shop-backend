@@ -21,7 +21,7 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 // List returns category rows ordered by `ord` then id.
 // If the table/query is not available the function returns an empty slice (caller-friendly).
 func (r *PostgresRepository) List(limit int) ([]CategoryItem, error) {
-	rows, err := r.db.Query(`SELECT "categoryID", "categoryName", "categoryImg" FROM category ORDER BY COALESCE(ord, 0) DESC, "categoryID" LIMIT $1`, limit)
+	rows, err := r.db.Query(`SELECT "categoryID", "categoryName", "categoryNameTH", "categoryImg" FROM category ORDER BY COALESCE(ord, 0) DESC, "categoryID" LIMIT $1`, limit)
 	if err != nil {
 		// table may not exist or be empty — return empty slice to keep API resilient
 		return []CategoryItem{}, nil
@@ -31,14 +31,18 @@ func (r *PostgresRepository) List(limit int) ([]CategoryItem, error) {
 	out := make([]CategoryItem, 0)
 	for rows.Next() {
 		var (
-			id   int
-			name string
-			img  sql.NullString
+			id     int
+			name   string
+			nameTH sql.NullString
+			img    sql.NullString
 		)
-		if err := rows.Scan(&id, &name, &img); err != nil {
+		if err := rows.Scan(&id, &name, &nameTH, &img); err != nil {
 			continue
 		}
 		item := CategoryItem{CategoryID: id, CategoryName: name}
+		if nameTH.Valid {
+			item.CategoryNameTH = &nameTH.String
+		}
 		if img.Valid {
 			item.CategoryImg = &img.String
 		}

@@ -69,3 +69,38 @@ func TestProductV1AndFavoriteRoutes_DoNotCollide(t *testing.T) {
 		}
 	}
 }
+func TestGetProductsByCategory(t *testing.T) {
+	prodSeed := []Product{
+		{ID: 1, Name: "A", Category: ptrString("catA")},
+		{ID: 2, Name: "B", Category: ptrString("catB")},
+		{ID: 3, Name: "C", Category: ptrString("catA")},
+	}
+	r := NewInMemoryRepository(prodSeed)
+	r.CategoryNames = map[int]string{100: "catA", 200: "catB"}
+	h := NewHandler(NewService(r))
+	app := fiber.New()
+	h.RegisterPublicRoutes(app)
+
+	req := httptest.NewRequest("GET", "/api/v1/product/category/100", nil)
+	res, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if res.StatusCode != 200 {
+		t.Fatalf("expected 200 got %d", res.StatusCode)
+	}
+	body, _ := io.ReadAll(res.Body)
+	str := string(body)
+	if !strings.Contains(str, "productId") || !strings.Contains(str, "A") {
+		t.Fatalf("unexpected body: %s", str)
+	}
+	if strings.Contains(str, "B") {
+		t.Fatalf("category B product leaked into response: %s", str)
+	}
+
+	req2 := httptest.NewRequest("GET", "/api/v1/product/category/abc", nil)
+	res2, _ := app.Test(req2)
+	if res2.StatusCode != fiber.StatusBadRequest {
+		t.Fatalf("expected 400 for bad id, got %d", res2.StatusCode)
+	}
+}

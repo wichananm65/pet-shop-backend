@@ -26,6 +26,7 @@ func (h *Handler) RegisterPublicRoutes(app *fiber.App) {
 	// captured by this parameterized route. Use angle-bracket regex which is
 	// supported by the router in the runtime used here and matches the image route.
 	app.Get("/api/v1/product/:id<[0-9]+>", h.getProductV1)
+	app.Get("/api/v1/product/category/:id<[0-9]+>", h.getProductsByCategory)
 	// dev-only endpoint to reset products — enabled when ALLOW_RESET_PRODUCTS=1
 	app.Post("/dev/reset-products", h.resetProducts)
 }
@@ -47,6 +48,16 @@ func (h *Handler) getProductV1(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
 	return c.JSON(p)
+}
+
+func (h *Handler) getProductsByCategory(c *fiber.Ctx) error {
+	param := c.Params("id")
+	id, err := strconv.Atoi(param)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("invalid category id")
+	}
+	products := h.service.ListByCategoryID(id)
+	return c.JSON(products)
 }
 
 func (h *Handler) RegisterProtectedRoutes(app *fiber.App) {

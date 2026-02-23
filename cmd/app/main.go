@@ -20,6 +20,7 @@ import (
 	"github.com/wichananm65/pet-shop-backend/internal/cart"
 	"github.com/wichananm65/pet-shop-backend/internal/category"
 	"github.com/wichananm65/pet-shop-backend/internal/favorite"
+	"github.com/wichananm65/pet-shop-backend/internal/order"
 	"github.com/wichananm65/pet-shop-backend/internal/product"
 	"github.com/wichananm65/pet-shop-backend/internal/recommended"
 	shoppingmall "github.com/wichananm65/pet-shop-backend/internal/shopping-mall"
@@ -77,6 +78,55 @@ func main() {
 		// not fatal
 		fmt.Printf("warning: cart normalization failed: %v\n", err)
 	}
+
+	// orders table storing cart map and price breakdown
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS orders (
+        "orderID" SERIAL PRIMARY KEY,
+        "userID" INT NOT NULL,
+        cart jsonb NOT NULL DEFAULT '{}',
+        quantity INT NOT NULL DEFAULT 0,
+        "totalPrice" numeric NOT NULL DEFAULT 0,
+        "shippingPrice" numeric NOT NULL DEFAULT 0,
+        "grandPrice" numeric NOT NULL DEFAULT 0,
+        status TEXT,
+        "createdAt" TEXT,
+        "updatedAt" TEXT
+    )`); err != nil {
+		panic(err)
+	}
+	// make sure the column exists in case table was created before cart added
+	if _, err := db.Exec(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cart jsonb NOT NULL DEFAULT '{}'`); err != nil {
+		panic(err)
+	}
+	// rename any lowercase columns from older schema versions
+	if _, err := db.Exec(`ALTER TABLE orders RENAME COLUMN IF EXISTS totalprice TO "totalPrice"`); err != nil {
+		// ignore
+	}
+	if _, err := db.Exec(`ALTER TABLE orders RENAME COLUMN IF EXISTS shippingprice TO "shippingPrice"`); err != nil {
+		// ignore
+	}
+	if _, err := db.Exec(`ALTER TABLE orders RENAME COLUMN IF EXISTS grandprice TO "grandPrice"`); err != nil {
+		// ignore
+	}
+	// if existing orders.cart is integer[] convert to jsonb
+	if _, err := db.Exec(`ALTER TABLE orders
+    ALTER COLUMN cart TYPE jsonb
+    USING to_jsonb(coalesce(cart, ARRAY[]::integer[]))`); err != nil {
+		// ignore
+	}
+	// normalize any array entries to map counts
+	if _, err := db.Exec(`UPDATE orders
+    SET cart = (
+        SELECT jsonb_object_agg(elem::text, cnt)
+        FROM (
+            SELECT elem, count(*) AS cnt
+            FROM unnest(cart::int[]) AS elem
+            GROUP BY elem
+        ) sub
+    )
+    WHERE jsonb_typeof(cart) = 'array'`); err != nil {
+		fmt.Printf("warning: orders cart normalization failed: %v\n", err)
+	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS banner (banner_id SERIAL PRIMARY KEY, banner_img TEXT, banner_link TEXT, banner_alt TEXT, ord INT)`); err != nil {
 		panic(err)
 	}
@@ -99,7 +149,11 @@ func main() {
 	}
 
 	// ensure category table exists; seed with public/Category images when empty
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS category ("categoryID" SERIAL PRIMARY KEY, "categoryName" TEXT, "categoryImg" TEXT, ord INT)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS category ("categoryID" SERIAL PRIMARY KEY, "categoryName" TEXT, "categoryNameTH" TEXT, "categoryImg" TEXT, ord INT)`); err != nil {
+		panic(err)
+	}
+	// make sure new TH column exists if table pre‑dated change
+	if _, err := db.Exec(`ALTER TABLE category ADD COLUMN IF NOT EXISTS "categoryNameTH" TEXT`); err != nil {
 		panic(err)
 	}
 
@@ -148,22 +202,51 @@ func main() {
 	var categoryCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM category`).Scan(&categoryCount); err == nil {
 		if categoryCount == 0 {
-			seed := []struct{ name, img string }{
-				{"Animal food", "/Category/Animal _food.png"},
-				{"Pet supplies", "/Category/pet_supplies.png"},
-				{"Clothes and accessories", "/Category/Clothes_and_accessories.png"},
-				{"Cleaning equipment", "/Category/Cleaning_equipment.png"},
-				{"Sand and bathroom", "/Category/sand_and_bathroom.png"},
-				{"Hygiene care", "/Category/Hygiene_care.png"},
-				{"Cat snacks", "/Category/Cat_snacks.png"},
-				{"Cat exercise", "/Category/Cat_exercise.png"},
+			seed := []struct{ name, nameTH, img string }{
+				{"Animal food", "อาหารสัตว์", "/Category/Animal _food.png"},
+				{"Pet supplies", "ของใช้สัตว์เลี้ยง", "/Category/pet_supplies.png"},
+				{"Clothes and accessories", "เสื้อผ้าและเครื่องแต่งกาย", "/Category/Clothes_and_accessories.png"},
+				{"Cleaning equipment", "อุปกรณ์ทำความสะอาด", "/Category/Cleaning_equipment.png"},
+				{"Sand and bathroom", "ทรายและห้องน้ำ", "/Category/sand_and_bathroom.png"},
+				{"Hygiene care", "ปกป้องสุขภาพ", "/Category/Hygiene_care.png"},
+				{"Cat snacks", "ขนมแมว", "/Category/Cat_snacks.png"},
+				{"Cat exercise", "อุปกรณ์ออกกำลังกายแมว", "/Category/Cat_exercise.png"},
 			}
 			for i, s := range seed {
-				if _, err := db.Exec(`INSERT INTO category ("categoryName", "categoryImg", ord) VALUES ($1,$2,$3)`, s.name, s.img, len(seed)-i); err != nil {
+				if _, err := db.Exec(`INSERT INTO category ("categoryName", "categoryNameTH", "categoryImg", ord) VALUES ($1,$2,$3,$4)`, s.name, s.nameTH, s.img, len(seed)-i); err != nil {
 					continue
 				}
 			}
 		}
+	}
+
+	// ensure v2 product table exists and mirror any legacy data
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS product (
+			product_id SERIAL PRIMARY KEY,
+			product_name TEXT,
+			product_name_en TEXT,
+			category TEXT,
+			product_price INT,
+			score INT,
+			product_desc TEXT,
+			product_desc_en TEXT,
+			product_pic TEXT,
+			product_pic_second TEXT,
+			created_at TIMESTAMP,
+			updated_at TIMESTAMP
+		);
+	`); err != nil {
+		fmt.Printf("warning: could not create product table: %v\n", err)
+	}
+	// copy any existing rows from legacy table into v2 if not already present
+	if _, err := db.Exec(`
+		INSERT INTO product (product_id, product_name, category, product_price, score, product_desc, product_pic, created_at, updated_at)
+		SELECT "productID", "productName", category, "productPrice", score, "productDesc", "productImg", "createdAt", "updatedAt"
+		FROM products p
+		WHERE NOT EXISTS (SELECT 1 FROM product WHERE product_id = p."productID")
+	`); err != nil {
+		// non-fatal
 	}
 
 	// create user repo/service/handler so we can share the user service with the
@@ -191,6 +274,9 @@ func main() {
 	// register shopping-mall handler (internal/shopping-mall)
 	shoppingMallHandler := shoppingmall.NewHandler(shoppingmall.NewService(shoppingmall.NewPostgresRepository(db)))
 	shoppingMallHandler.RegisterPublicRoutes(app)
+
+	// order handler (will register protected routes later)
+	orderHandler := order.NewHandler(order.NewService(order.NewPostgresRepository(db)), userService)
 
 	// register product public routes after specific endpoints to avoid route param collision
 	productHandler.RegisterPublicRoutes(app)
@@ -242,23 +328,23 @@ func main() {
 		if _, err := db.Exec(`DROP TABLE IF EXISTS category`); err != nil {
 			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
-		if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS category ("categoryID" SERIAL PRIMARY KEY, "categoryName" TEXT, "categoryImg" TEXT, ord INT)`); err != nil {
+		if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS category ("categoryID" SERIAL PRIMARY KEY, "categoryName" TEXT, "categoryNameTH" TEXT, "categoryImg" TEXT, ord INT)`); err != nil {
 			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
 
-		seed := []struct{ name, img string }{
-			{"Animal food", "/Category/Animal _food.png"},
-			{"Pet supplies", "/Category/pet_supplies.png"},
-			{"Clothes and accessories", "/Category/Clothes_and_accessories.png"},
-			{"Cleaning equipment", "/Category/Cleaning_equipment.png"},
-			{"Sand and bathroom", "/Category/sand_and_bathroom.png"},
-			{"Hygiene care", "/Category/Hygiene_care.png"},
-			{"Cat snacks", "/Category/Cat_snacks.png"},
-			{"Cat exercise", "/Category/Cat_exercise.png"},
+		seed := []struct{ name, nameTH, img string }{
+			{"Animal food", "อาหารสัตว์", "/Category/Animal _food.png"},
+			{"Pet supplies", "ของใช้สัตว์เลี้ยง", "/Category/pet_supplies.png"},
+			{"Clothes and accessories", "เสื้อผ้าและเครื่องแต่งกาย", "/Category/Clothes_and_accessories.png"},
+			{"Cleaning equipment", "อุปกรณ์ทำความสะอาด", "/Category/Cleaning_equipment.png"},
+			{"Sand and bathroom", "ทรายและห้องน้ำ", "/Category/sand_and_bathroom.png"},
+			{"Hygiene care", "ปกป้องสุขภาพ", "/Category/Hygiene_care.png"},
+			{"Cat snacks", "ขนมแมว", "/Category/Cat_snacks.png"},
+			{"Cat exercise", "อุปกรณ์ออกกำลังกายแมว", "/Category/Cat_exercise.png"},
 		}
 		inserted := 0
 		for i, s := range seed {
-			if _, err := db.Exec(`INSERT INTO category ("categoryName", "categoryImg", ord) VALUES ($1,$2,$3)`, s.name, s.img, len(seed)-i); err != nil {
+			if _, err := db.Exec(`INSERT INTO category ("categoryName", "categoryNameTH", "categoryImg", ord) VALUES ($1,$2,$3,$4)`, s.name, s.nameTH, s.img, len(seed)-i); err != nil {
 				continue
 			}
 			inserted++
@@ -322,6 +408,8 @@ func main() {
 	}))
 
 	userHandler.RegisterProtectedRoutes(app)
+	// order endpoints (protected)
+	orderHandler.RegisterProtectedRoutes(app)
 	// favorites are handled by a dedicated handler with its own repository/service
 	favoriteRepo := favorite.NewPostgresRepository(db)
 	favoriteService := favorite.NewService(favoriteRepo)

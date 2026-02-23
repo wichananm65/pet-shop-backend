@@ -20,6 +20,7 @@ func NewHandler(s *Service) *Handler {
 func (h *Handler) RegisterProtectedRoutes(app *fiber.App) {
 	app.Get("/api/v1/cart", h.getCart)
 	app.Post("/api/v1/product/cart", h.addToCart)
+	app.Delete("/api/v1/cart", h.clearCart)
 }
 
 type cartRequest struct {
@@ -73,4 +74,20 @@ func (h *Handler) getCart(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(cart)
+}
+
+func (h *Handler) clearCart(c *fiber.Ctx) error {
+	userID, err := user.GetUserIDFromCtx(c)
+	if err != nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthorized"})
+	}
+	if err := h.service.ClearCart(userID); err != nil {
+		switch err {
+		case user.ErrNotFound:
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "user not found"})
+		default:
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
+		}
+	}
+	return c.SendStatus(fiber.StatusNoContent)
 }

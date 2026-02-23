@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"github.com/lib/pq"
 )
 
 type PostgresRepository struct {
@@ -17,17 +18,29 @@ type rowScanner interface {
 
 const (
 	listUsersQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic,
+		array_to_string("favoriteProductId", ',') AS favoriteProductId_text,
+		array_to_string("cartProductId", ',') AS cartProductId_text,
+		array_to_string("orderId", ',') AS orderId_text,
+		"createAt", "updateAt"
 		FROM users
 		ORDER BY "userId"
 	`
 	getUserByIDQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic,
+		array_to_string("favoriteProductId", ',') AS favoriteProductId_text,
+		array_to_string("cartProductId", ',') AS cartProductId_text,
+		array_to_string("orderId", ',') AS orderId_text,
+		"createAt", "updateAt"
 		FROM users
 		WHERE "userId" = $1
 	`
 	getUserByEmailQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic, array_to_string("favoriteProductId", ',') AS favoriteProductId_text, array_to_string("cartProductId", ',') AS cartProductId_text, "createAt", "updateAt"
+		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic,
+		array_to_string("favoriteProductId", ',') AS favoriteProductId_text,
+		array_to_string("cartProductId", ',') AS cartProductId_text,
+		array_to_string("orderId", ',') AS orderId_text,
+		"createAt", "updateAt"
 		FROM users
 		WHERE email = $1
 	`
@@ -46,6 +59,7 @@ const (
 			gender = $5,
 			"mainAddressId" = $9,
 			avatar_pic = $8,
+			"orderId" = $10,
 			"updateAt" = $6
 		WHERE "userId" = $7
 	`
@@ -149,6 +163,7 @@ func (r *PostgresRepository) Update(id int, userUpdate User) (User, error) {
 		id,
 		avatarArg,
 		userUpdate.MainAddressID,
+		pq.Array(userUpdate.OrderIDs),
 	)
 	if err != nil {
 		return User{}, err
@@ -186,10 +201,17 @@ func (r *PostgresRepository) CreateCartWithID(cartID int) error {
 	return nil
 }
 
+// AppendOrderID adds the given orderID to the user's orderId column.
+func (r *PostgresRepository) AppendOrderID(userID int, orderID int) error {
+	_, err := r.db.Exec(`UPDATE users SET "orderId" = array_append(coalesce("orderId", ARRAY[]::int[]), $1) WHERE "userId" = $2`, orderID, userID)
+	return err
+}
+
 func scanUser(scanner rowScanner) (User, error) {
 	user := User{}
 	var favText sql.NullString
 	var cartJSON sql.NullString
+	var orderText sql.NullString
 	var avatar sql.NullString
 	var mainAddr sql.NullInt64
 	var createdAt sql.NullString
@@ -207,6 +229,7 @@ func scanUser(scanner rowScanner) (User, error) {
 		&avatar,
 		&favText,
 		&cartJSON,
+		&orderText,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
@@ -261,6 +284,21 @@ func scanUser(scanner rowScanner) (User, error) {
 					user.Cart[pid]++
 					user.CartProductIDs = append(user.CartProductIDs, pid)
 				}
+			}
+		}
+	}
+
+	// process order ids text if available
+	if orderText.Valid && orderText.String != "" {
+		parts := strings.Split(orderText.String, ",")
+		user.OrderIDs = make([]int, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if id, err := strconv.Atoi(p); err == nil {
+				user.OrderIDs = append(user.OrderIDs, id)
 			}
 		}
 	}

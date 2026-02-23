@@ -48,7 +48,39 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 func (r *PostgresRepository) List() []Product {
 	rows, err := r.db.Query(listProductsQuery)
 	if err != nil {
-		return []Product{}
+		// fallback to legacy `products` table if the modern `product` table is missing
+		return r.listLegacy()
+	}
+	defer rows.Close()
+
+	out := make([]Product, 0)
+	for rows.Next() {
+		p, err := scanProduct(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// ListByCategoryID returns products whose category matches the name stored in
+// the category table for the given numeric ID. The join avoids having to perform
+// two queries in the service layer.
+func (r *PostgresRepository) ListByCategoryID(catID int) []Product {
+	q := `
+		SELECT p.product_id, p.product_name, p.product_name_en, p.category,
+		       p.product_price, p.score, p.product_desc, p.product_desc_en,
+		       p.product_pic, p.product_pic_second, p.created_at, p.updated_at
+		FROM product p
+		JOIN category c ON p.category = c."categoryName"
+		WHERE c."categoryID" = $1
+		ORDER BY p.product_id
+	`
+	rows, err := r.db.Query(q, catID)
+	if err != nil {
+		// try legacy table
+		return r.listByCategoryIDLegacy(catID)
 	}
 	defer rows.Close()
 
@@ -68,9 +100,11 @@ func (r *PostgresRepository) GetByID(id int) (Product, error) {
 	p, err := scanProduct(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return Product{}, ErrNotFound
+			// try legacy table as last resort
+			return r.getByIDLegacy(id)
 		}
-		return Product{}, err
+		// if the query itself failed (table missing) we get an error from Scan
+		return r.getByIDLegacy(id)
 	}
 	return p, nil
 }
@@ -207,6 +241,8 @@ func (r *PostgresRepository) Delete(id int) error {
 }
 
 // Reset deletes all products and inserts the provided list in a single transaction.
+// To support legacy deployments we clear both `product` and `products` tables so
+// today’s code can work regardless of which table is actually populated.
 func (r *PostgresRepository) Reset(products []Product) error {
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -216,9 +252,9 @@ func (r *PostgresRepository) Reset(products []Product) error {
 		_ = tx.Rollback()
 	}()
 
-	if _, err := tx.Exec(`DELETE FROM product`); err != nil {
-		return err
-	}
+	// clear both tables; ignore errors for non-existent table
+	_, _ = tx.Exec(`DELETE FROM product`)
+	_, _ = tx.Exec(`DELETE FROM products`)
 
 	for _, p := range products {
 		var id int
@@ -244,6 +280,114 @@ func (r *PostgresRepository) Reset(products []Product) error {
 		return err
 	}
 	return nil
+}
+
+// ---- legacy helpers -------------------------------------------------------
+
+// listLegacy retrieves rows from the older `products` table and converts them
+// into the v2 Product struct.
+func (r *PostgresRepository) listLegacy() []Product {
+	q := `SELECT "productID","productName","productNameTH","productPrice",score,"productDesc","productDescTH","productImg","productImgSec","createdAt","updatedAt",category FROM products ORDER BY "productID"`
+	rows, err := r.db.Query(q)
+	if err != nil {
+		return []Product{}
+	}
+	defer rows.Close()
+	out := make([]Product, 0)
+	for rows.Next() {
+		p, err := scanProductLegacy(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func (r *PostgresRepository) listByCategoryIDLegacy(catID int) []Product {
+	q := `SELECT p."productID",p."productName",p."productNameTH",p."productPrice",p.score,p."productDesc",p."productDescTH",p."productImg",p."productImgSec",p."createdAt",p."updatedAt",p.category
+		FROM products p
+		JOIN category c ON p.category = c."categoryName"
+		WHERE c."categoryID" = $1
+		ORDER BY p."productID"`
+	rows, err := r.db.Query(q, catID)
+	if err != nil {
+		return []Product{}
+	}
+	defer rows.Close()
+	out := make([]Product, 0)
+	for rows.Next() {
+		p, err := scanProductLegacy(rows)
+		if err != nil {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func (r *PostgresRepository) getByIDLegacy(id int) (Product, error) {
+	q := `SELECT "productID","productName","productNameTH","productPrice",score,"productDesc","productDescTH","productImg","productImgSec","createdAt","updatedAt",category FROM products WHERE "productID" = $1`
+	row := r.db.QueryRow(q, id)
+	p, err := scanProductLegacy(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return Product{}, ErrNotFound
+		}
+		return Product{}, err
+	}
+	return p, nil
+}
+
+func scanProductLegacy(scanner rowScanner) (Product, error) {
+	p := Product{}
+	var (
+		nameTH    sql.NullString
+		descTH    sql.NullString
+		img       sql.NullString
+		imgSec    sql.NullString
+		category  sql.NullString
+		createdAt sql.NullString
+		updatedAt sql.NullString
+	)
+	if err := scanner.Scan(
+		&p.ID,
+		&p.Name,
+		&nameTH,
+		&p.Price,
+		&p.Score,
+		&p.Description,
+		&descTH,
+		&img,
+		&imgSec,
+		&createdAt,
+		&updatedAt,
+		&category,
+	); err != nil {
+		return Product{}, err
+	}
+	if nameTH.Valid {
+		p.NameEn = &nameTH.String // repurpose Thai name for lack of English field
+	}
+	if descTH.Valid {
+		p.DescriptionEn = &descTH.String
+	}
+	if img.Valid {
+		p.Pic = &img.String
+	}
+	if imgSec.Valid {
+		p.PicSecond = &imgSec.String
+	}
+	if category.Valid {
+		p.Category = &category.String
+	}
+	if createdAt.Valid {
+		p.CreatedAt = &createdAt.String
+	}
+	if updatedAt.Valid {
+		p.UpdatedAt = &updatedAt.String
+	}
+	return p, nil
 }
 
 type rowScanner interface {

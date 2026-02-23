@@ -27,6 +27,16 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 	return &PostgresRepository{db: db}
 }
 
+// ClearCart sets the user's cart JSON to an empty object.
+func (r *PostgresRepository) ClearCart(userID int, updatedAt string) error {
+	if updatedAt == "" {
+		_, err := r.db.Exec(`UPDATE users SET cart = '{}' WHERE "userId" = $1`, userID)
+		return err
+	}
+	_, err := r.db.Exec(`UPDATE users SET cart = '{}', "updateAt" = $2 WHERE "userId" = $1`, userID, updatedAt)
+	return err
+}
+
 func (r *PostgresRepository) AddToCart(userID int, productID int, qty int, updatedAt string) ([]CartItem, error) {
 	// load current cart JSON
 	var raw sql.NullString

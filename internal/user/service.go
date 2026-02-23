@@ -7,6 +7,20 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// ServiceInterface defines the methods for user service (for handler and testing)
+type ServiceInterface interface {
+	List() []User
+	GetByID(id int) (User, error)
+	Create(user User) (User, error)
+	Update(id int, user User) (User, error)
+	Delete(id int) error
+	AppendOrderID(userID int, orderID int) (User, error)
+	Register(user User) (User, error)
+	Authenticate(email, password string) (User, error)
+}
+
+var _ ServiceInterface = (*Service)(nil) // Ensure *Service implements ServiceInterface
+
 type Service struct {
 	repo Repository
 }
@@ -41,6 +55,17 @@ func (s *Service) Update(id int, user User) (User, error) {
 
 func (s *Service) Delete(id int) error {
 	return s.repo.Delete(id)
+}
+
+// AppendOrderID adds an order ID to the user's order list and returns updated user
+func (s *Service) AppendOrderID(userID int, orderID int) (User, error) {
+	// fetch current user
+	u, err := s.repo.GetByID(userID)
+	if err != nil {
+		return User{}, err
+	}
+	u.OrderIDs = append(u.OrderIDs, orderID)
+	return s.repo.Update(userID, u)
 }
 
 func (s *Service) Register(user User) (User, error) {

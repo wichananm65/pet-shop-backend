@@ -123,4 +123,23 @@ func TestCartRoutes_Basic(t *testing.T) {
 	if strings.Contains(string(b7), `"productID":3`) {
 		t.Fatalf("expected product 3 to be removed after quantity zero, got %s", string(b7))
 	}
+
+	// clear the cart via DELETE endpoint
+	req8 := httptest.NewRequest("DELETE", "/api/v1/cart", nil)
+	req8.Header.Set("X-User-ID", "42")
+	res8, _ := app.Test(req8)
+	if res8.StatusCode != fiber.StatusNoContent {
+		t.Fatalf("expected 204 for clear cart, got %d", res8.StatusCode)
+	}
+	// after clearing, GET should return empty
+	req9 := httptest.NewRequest("GET", "/api/v1/cart", nil)
+	req9.Header.Set("X-User-ID", "42")
+	res9, _ := app.Test(req9)
+	if res9.StatusCode != fiber.StatusOK {
+		t.Fatalf("expected 200 after clearing, got %d", res9.StatusCode)
+	}
+	b9, _ := io.ReadAll(res9.Body)
+	if strings.Contains(string(b9), "productID") {
+		t.Fatalf("expected empty cart after clear, got %s", string(b9))
+	}
 }

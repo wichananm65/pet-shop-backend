@@ -33,6 +33,11 @@ func (s *Service) Delete(id int) error {
 	return s.repo.Delete(id)
 }
 
+// ListByCategoryID returns all products associated with the numeric category identifier.
+func (s *Service) ListByCategoryID(catID int) []Product {
+	return s.repo.ListByCategoryID(catID)
+}
+
 // ResetProducts replaces all products with the given list (used for dev / seeding).
 func (s *Service) ResetProducts(products []Product) error {
 	return s.repo.Reset(products)
