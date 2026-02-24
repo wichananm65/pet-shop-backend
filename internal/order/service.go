@@ -30,3 +30,13 @@ func (s *Service) Create(ord Order, userID int) (Order, error) {
 	// This requires access to user service, which should be handled in handler layer
 	return createdOrder, nil
 }
+
+// ListByIDs retrieves the orders corresponding to the given ids.  The
+// business logic layer currently does not perform additional validation
+// beyond ensuring the id list is non-nil.
+func (s *Service) ListByIDs(ids []int) ([]Order, error) {
+	if ids == nil {
+		return []Order{}, nil
+	}
+	return s.repo.ListByIDs(ids)
+}

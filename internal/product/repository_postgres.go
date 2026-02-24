@@ -2,6 +2,8 @@ package product
 
 import (
 	"database/sql"
+
+	"github.com/lib/pq"
 )
 
 type PostgresRepository struct {
@@ -172,6 +174,67 @@ func (r *PostgresRepository) GetV1ByID(id int) (ProductV1, error) {
 		Score:         pScore,
 		Category:      pCat,
 	}, nil
+}
+
+// ListV1ByIDs retrieves the v1-style records for all product IDs in the
+// provided slice.  Returns empty slice when input is empty.
+func (r *PostgresRepository) ListV1ByIDs(ids []int) ([]ProductV1, error) {
+	if len(ids) == 0 {
+		return []ProductV1{}, nil
+	}
+	q := `SELECT "productID", "productName", "productNameTH", "productPrice", "productImg", "productDesc", "productDescTH", "score", "category" FROM products WHERE "productID" = ANY($1::int[])`
+	rows, err := r.db.Query(q, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ProductV1, 0)
+	for rows.Next() {
+		var (
+			pid      int
+			name     sql.NullString
+			nameTH   sql.NullString
+			price    sql.NullInt64
+			img      sql.NullString
+			desc     sql.NullString
+			descTH   sql.NullString
+			score    sql.NullInt64
+			category sql.NullString
+		)
+		if err := rows.Scan(&pid, &name, &nameTH, &price, &img, &desc, &descTH, &score, &category); err != nil {
+			continue
+		}
+		p := ProductV1{ProductID: pid}
+		if name.Valid {
+			p.ProductName = &name.String
+		}
+		if nameTH.Valid {
+			p.ProductNameTH = &nameTH.String
+		}
+		if price.Valid {
+			val := int(price.Int64)
+			p.ProductPrice = &val
+		}
+		if img.Valid {
+			p.ProductImg = &img.String
+		}
+		if desc.Valid {
+			p.ProductDesc = &desc.String
+		}
+		if descTH.Valid {
+			p.ProductDescTH = &descTH.String
+		}
+		if score.Valid {
+			val := int(score.Int64)
+			p.Score = &val
+		}
+		if category.Valid {
+			p.Category = &category.String
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 func (r *PostgresRepository) Create(p Product) (Product, error) {

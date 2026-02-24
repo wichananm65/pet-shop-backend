@@ -21,6 +21,10 @@ type Repository interface {
 	// frontend v1 API: productID, productName, productNameTH, productPrice,
 	// productImg, productDesc, productDescTH, score and category.
 	GetV1ByID(id int) (ProductV1, error)
+	// ListV1ByIDs returns v1 product layouts for the given slice of IDs.  If
+	// ids is empty the implementation should return an empty slice without
+	// performing any database work.
+	ListV1ByIDs(ids []int) ([]ProductV1, error)
 	Create(p Product) (Product, error)
 	Update(id int, p Product) (Product, error)
 	Delete(id int) error
@@ -120,6 +124,21 @@ func (r *InMemoryRepository) GetV1ByID(id int) (ProductV1, error) {
 	}
 	// In-memory store doesn't have distinct TH fields — leave them nil.
 	return res, nil
+}
+
+// ListV1ByIDs returns v1 representations for the given ids in the order
+// provided. Missing products are silently skipped.
+func (r *InMemoryRepository) ListV1ByIDs(ids []int) ([]ProductV1, error) {
+	if len(ids) == 0 {
+		return []ProductV1{}, nil
+	}
+	out := make([]ProductV1, 0, len(ids))
+	for _, id := range ids {
+		if p, err := r.GetV1ByID(id); err == nil {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 func (r *InMemoryRepository) Create(p Product) (Product, error) {

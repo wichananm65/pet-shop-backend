@@ -254,7 +254,12 @@ func main() {
 	userRepo := user.NewPostgresRepository(db)
 	userService := user.NewService(userRepo)
 	userHandler := user.NewHandler(userService)
-	productHandler := buildProductHandler(db)
+
+	// build product service/handler early so we can reuse service elsewhere
+	productRepo := product.NewPostgresRepository(db)
+	productService := product.NewService(productRepo)
+	productHandler := product.NewHandler(productService)
+
 	jwtSecret := os.Getenv("JWT_SECRET")
 
 	userHandler.RegisterPublicRoutes(app)
@@ -276,7 +281,8 @@ func main() {
 	shoppingMallHandler.RegisterPublicRoutes(app)
 
 	// order handler (will register protected routes later)
-	orderHandler := order.NewHandler(order.NewService(order.NewPostgresRepository(db)), userService)
+	// it needs access to product service for enriching carts
+	orderHandler := order.NewHandler(order.NewService(order.NewPostgresRepository(db)), userService, productService)
 
 	// register product public routes after specific endpoints to avoid route param collision
 	productHandler.RegisterPublicRoutes(app)
@@ -488,12 +494,6 @@ func mustOpenDB() *sql.DB {
 	}
 
 	return db
-}
-
-func buildProductHandler(db *sql.DB) *product.Handler {
-	productRepo := product.NewPostgresRepository(db)
-	productService := product.NewService(productRepo)
-	return product.NewHandler(productService)
 }
 
 func uploadFile(c *fiber.Ctx) error {
