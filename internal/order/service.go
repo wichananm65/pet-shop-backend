@@ -14,29 +14,24 @@ func NewService(r Repository) *Service {
 }
 
 func (s *Service) Create(ord Order, userID int) (Order, error) {
-	// basic validation already performed by handler, but double-check
 	if userID <= 0 {
 		return Order{}, errors.New("invalid user")
 	}
 	if len(ord.Cart) == 0 {
 		return Order{}, errors.New("empty cart")
 	}
-	// TODO: could verify that totals match cart contents
-	createdOrder, err := s.repo.Create(ord)
-	if err != nil {
-		return Order{}, err
-	}
-	// After order is created, give orderID to user
-	// This requires access to user service, which should be handled in handler layer
-	return createdOrder, nil
+	return s.repo.Create(ord, userID)
 }
 
-// ListByIDs retrieves the orders corresponding to the given ids.  The
-// business logic layer currently does not perform additional validation
-// beyond ensuring the id list is non-nil.
+// ListByIDs retrieves the orders corresponding to the given ids.
 func (s *Service) ListByIDs(ids []int) ([]Order, error) {
 	if ids == nil {
 		return []Order{}, nil
 	}
 	return s.repo.ListByIDs(ids)
+}
+
+// ListByUserID retrieves all orders for a given user directly from the orders table.
+func (s *Service) ListByUserID(userID int) ([]Order, error) {
+	return s.repo.ListByUserID(userID)
 }

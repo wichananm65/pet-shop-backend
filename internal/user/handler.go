@@ -44,10 +44,7 @@ func (h *Handler) RegisterProtectedRoutes(app *fiber.App) {
 	app.Post("/users", h.createUser)
 	app.Put("/user/:id", h.updateUser)
 	app.Delete("/user/:id", h.deleteUser)
-	// profile endpoint returns the current user based on JWT claims
 	app.Get("/api/v1/profile", h.getProfile)
-	// support both PUT and PATCH for updating profile fields. the handler
-	// accepts partial payloads so PATCH behaviour is satisfied.
 	app.Put("/api/v1/profile", h.updateProfile)
 	app.Patch("/api/v1/profile", h.updateProfile)
 	app.Post("/api/v1/profile/avatar", h.uploadAvatar)

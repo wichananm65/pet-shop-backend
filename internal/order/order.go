@@ -3,12 +3,9 @@ package order
 import "github.com/wichananm65/pet-shop-backend/internal/product"
 
 // Order represents a purchase made by a user.
-// The Cart field holds a mapping from productID to quantity; when the
-// API returns orders we also include an optional CartProducts field that
-// contains lookup information about each product.  The field is left out
-// when creating an order.
 type Order struct {
 	OrderID       int                          `json:"orderID"`
+	UserID        int                          `json:"userID,omitempty"`
 	Cart          map[string]int               `json:"cart"`
 	CartProducts  map[string]product.ProductV1 `json:"cartProducts,omitempty"`
 	Quantity      int                          `json:"quantity"`

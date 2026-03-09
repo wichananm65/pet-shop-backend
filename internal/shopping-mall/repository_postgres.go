@@ -20,7 +20,7 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 }
 
 func (r *PostgresRepository) List(limit int) ([]ShoppingMallItem, error) {
-	rows, err := r.db.Query(`SELECT "productID", "productImg", "productPrice", "score", "productName", "productNameTH" FROM products ORDER BY "productID" LIMIT $1`, limit)
+	rows, err := r.db.Query(`SELECT productid, productimg, productprice, score, productname, productnameth FROM products ORDER BY productid LIMIT $1`, limit)
 	if err != nil {
 		return []ShoppingMallItem{}, nil
 	}
@@ -66,7 +66,7 @@ func (r *PostgresRepository) List(limit int) ([]ShoppingMallItem, error) {
 }
 
 func (r *PostgresRepository) ListLite(limit int) ([]LiteItem, error) {
-	rows, err := r.db.Query(`SELECT "productID", "productImg" FROM products ORDER BY "productID" LIMIT $1`, limit)
+	rows, err := r.db.Query(`SELECT productid, productimg FROM products ORDER BY productid LIMIT $1`, limit)
 	if err != nil {
 		return []LiteItem{}, nil
 	}

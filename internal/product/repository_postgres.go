@@ -12,22 +12,22 @@ type PostgresRepository struct {
 
 const (
 	listProductsQuery = `
-		SELECT product_id, product_name, product_name_en, category, product_price, score, product_desc, product_desc_en, product_pic, product_pic_second, created_at, updated_at
-		FROM product
-		ORDER BY product_id
+		SELECT productid, productname, productprice, productdesc, productimg, score, productnameth, productdescth, created_at, updated_at
+		FROM products
+		ORDER BY productid
 	`
 	getProductByIDQuery = `
-		SELECT product_id, product_name, product_name_en, category, product_price, score, product_desc, product_desc_en, product_pic, product_pic_second, created_at, updated_at
-		FROM product
-		WHERE product_id = $1
+		SELECT productid, productname, productprice, productdesc, productimg, score, productnameth, productdescth, created_at, updated_at
+		FROM products
+		WHERE productid = $1
 	`
 	insertProductQuery = `
-		INSERT INTO product (product_name, product_name_en, category, product_price, score, product_desc, product_desc_en, product_pic, product_pic_second, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		RETURNING product_id
+		INSERT INTO products (productname, productnameth, productprice, score, productdesc, productdescth, productimg, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		RETURNING productid
 	`
 	updateProductQuery = `
-		UPDATE product
+		UPDATE products
 		SET product_name = $1,
 			product_name_en = $2,
 			category = $3,
@@ -40,7 +40,7 @@ const (
 			updated_at = $10
 		WHERE product_id = $11
 	`
-	deleteProductQuery = `DELETE FROM product WHERE product_id = $1`
+	deleteProductQuery = `DELETE FROM products WHERE productid = $1`
 )
 
 func NewPostgresRepository(db *sql.DB) *PostgresRepository {
@@ -113,28 +113,27 @@ func (r *PostgresRepository) GetByID(id int) (Product, error) {
 
 // GetV1ByID returns the `products`-style product detail used by the v1 API.
 func (r *PostgresRepository) GetV1ByID(id int) (ProductV1, error) {
-	q := `SELECT "productID", "productName", "productNameTH", "productPrice", "productImg", "productDesc", "productDescTH", "score", "category" FROM products WHERE "productID" = $1`
+	q := `SELECT productid, productname, productnameth, productprice, productimg, productdesc, productdescth, score FROM products WHERE productid = $1`
 	row := r.db.QueryRow(q, id)
 	var (
-		pid      int
-		name     sql.NullString
-		nameTH   sql.NullString
-		price    sql.NullInt64
-		img      sql.NullString
-		desc     sql.NullString
-		descTH   sql.NullString
-		score    sql.NullInt64
-		category sql.NullString
+		pid    int
+		name   sql.NullString
+		nameTH sql.NullString
+		price  sql.NullInt64
+		img    sql.NullString
+		desc   sql.NullString
+		descTH sql.NullString
+		score  sql.NullInt64
 	)
-	if err := row.Scan(&pid, &name, &nameTH, &price, &img, &desc, &descTH, &score, &category); err != nil {
+	if err := row.Scan(&pid, &name, &nameTH, &price, &img, &desc, &descTH, &score); err != nil {
 		if err == sql.ErrNoRows {
 			return ProductV1{}, ErrNotFound
 		}
 		return ProductV1{}, err
 	}
 	var (
-		pName, pNameTH, pImg, pDesc, pDescTH, pCat *string
-		pPrice, pScore                             *int
+		pName, pNameTH, pImg, pDesc, pDescTH *string
+		pPrice, pScore                       *int
 	)
 	if name.Valid {
 		pName = &name.String
@@ -150,9 +149,6 @@ func (r *PostgresRepository) GetV1ByID(id int) (ProductV1, error) {
 	}
 	if descTH.Valid {
 		pDescTH = &descTH.String
-	}
-	if category.Valid {
-		pCat = &category.String
 	}
 	if price.Valid {
 		v := int(price.Int64)
@@ -172,7 +168,6 @@ func (r *PostgresRepository) GetV1ByID(id int) (ProductV1, error) {
 		ProductDesc:   pDesc,
 		ProductDescTH: pDescTH,
 		Score:         pScore,
-		Category:      pCat,
 	}, nil
 }
 
@@ -182,7 +177,7 @@ func (r *PostgresRepository) ListV1ByIDs(ids []int) ([]ProductV1, error) {
 	if len(ids) == 0 {
 		return []ProductV1{}, nil
 	}
-	q := `SELECT "productID", "productName", "productNameTH", "productPrice", "productImg", "productDesc", "productDescTH", "score", "category" FROM products WHERE "productID" = ANY($1::int[])`
+	q := `SELECT productid, productname, productnameth, productprice, productimg, productdesc, productdescth, score FROM products WHERE productid = ANY($1::int[])`
 	rows, err := r.db.Query(q, pq.Array(ids))
 	if err != nil {
 		return nil, err
@@ -192,17 +187,16 @@ func (r *PostgresRepository) ListV1ByIDs(ids []int) ([]ProductV1, error) {
 	out := make([]ProductV1, 0)
 	for rows.Next() {
 		var (
-			pid      int
-			name     sql.NullString
-			nameTH   sql.NullString
-			price    sql.NullInt64
-			img      sql.NullString
-			desc     sql.NullString
-			descTH   sql.NullString
-			score    sql.NullInt64
-			category sql.NullString
+			pid    int
+			name   sql.NullString
+			nameTH sql.NullString
+			price  sql.NullInt64
+			img    sql.NullString
+			desc   sql.NullString
+			descTH sql.NullString
+			score  sql.NullInt64
 		)
-		if err := rows.Scan(&pid, &name, &nameTH, &price, &img, &desc, &descTH, &score, &category); err != nil {
+		if err := rows.Scan(&pid, &name, &nameTH, &price, &img, &desc, &descTH, &score); err != nil {
 			continue
 		}
 		p := ProductV1{ProductID: pid}
@@ -228,9 +222,6 @@ func (r *PostgresRepository) ListV1ByIDs(ids []int) ([]ProductV1, error) {
 		if score.Valid {
 			val := int(score.Int64)
 			p.Score = &val
-		}
-		if category.Valid {
-			p.Category = &category.String
 		}
 		out = append(out, p)
 	}
@@ -350,7 +341,7 @@ func (r *PostgresRepository) Reset(products []Product) error {
 // listLegacy retrieves rows from the older `products` table and converts them
 // into the v2 Product struct.
 func (r *PostgresRepository) listLegacy() []Product {
-	q := `SELECT "productID","productName","productNameTH","productPrice",score,"productDesc","productDescTH","productImg","productImgSec","createdAt","updatedAt",category FROM products ORDER BY "productID"`
+	q := `SELECT productid,productname,productnameth,productprice,score,productdesc,productdescth,productimg,NULL::text,NULL::text,NULL::text,NULL::text FROM products ORDER BY productid`
 	rows, err := r.db.Query(q)
 	if err != nil {
 		return []Product{}
@@ -368,11 +359,11 @@ func (r *PostgresRepository) listLegacy() []Product {
 }
 
 func (r *PostgresRepository) listByCategoryIDLegacy(catID int) []Product {
-	q := `SELECT p."productID",p."productName",p."productNameTH",p."productPrice",p.score,p."productDesc",p."productDescTH",p."productImg",p."productImgSec",p."createdAt",p."updatedAt",p.category
+	q := `SELECT p.productid,p.productname,p.productnameth,p.productprice,p.score,p.productdesc,p.productdescth,p.productimg,NULL::text,NULL::text,NULL::text,NULL::text
 		FROM products p
-		JOIN category c ON p.category = c."categoryName"
-		WHERE c."categoryID" = $1
-		ORDER BY p."productID"`
+		JOIN category c ON p.productid = ANY(c.product_id)
+		WHERE c.categoryid = $1
+		ORDER BY p.productid`
 	rows, err := r.db.Query(q, catID)
 	if err != nil {
 		return []Product{}
@@ -390,7 +381,7 @@ func (r *PostgresRepository) listByCategoryIDLegacy(catID int) []Product {
 }
 
 func (r *PostgresRepository) getByIDLegacy(id int) (Product, error) {
-	q := `SELECT "productID","productName","productNameTH","productPrice",score,"productDesc","productDescTH","productImg","productImgSec","createdAt","updatedAt",category FROM products WHERE "productID" = $1`
+	q := `SELECT productid, productname, productnameth, productprice, score, productdesc, productdescth, productimg, NULL::text, NULL::text, NULL::text, NULL::text FROM products WHERE productid = $1`
 	row := r.db.QueryRow(q, id)
 	p, err := scanProductLegacy(row)
 	if err != nil {

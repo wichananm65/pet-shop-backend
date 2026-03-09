@@ -16,11 +16,11 @@ import (
 //   "updatedAt" text
 
 const (
-	insertAddressQuery = `INSERT INTO address ("userID", "addressDesc", "phone", "addressName", "createdAt", "updatedAt")
-        VALUES ($1,$2,$3,$4,$5,$6) RETURNING "addressID"`
-	updateAddressQuery = `UPDATE address SET "addressDesc"=$1, "phone"=$2, "addressName"=$3, "updatedAt"=$4
-        WHERE "userID"=$5 AND "addressID"=$6 RETURNING "addressID"`
-	deleteAddressQuery = `DELETE FROM address WHERE "userID"=$1 AND "addressID"=$2`
+	insertAddressQuery = `INSERT INTO address (userid, addressdesc, phone, addressname, createdat, updatedat)
+        VALUES ($1,$2,$3,$4,$5,$6) RETURNING addressid`
+	updateAddressQuery = `UPDATE address SET addressdesc=$1, phone=$2, addressname=$3, updatedat=$4
+        WHERE userid=$5 AND addressid=$6 RETURNING addressid`
+	deleteAddressQuery = `DELETE FROM address WHERE userid=$1 AND addressid=$2`
 )
 
 type PostgresRepository struct {
@@ -35,7 +35,7 @@ func (r *PostgresRepository) GetAddresses(userID int) ([]Address, error) {
 	if userID <= 0 {
 		return nil, ErrNotFound
 	}
-	rows, err := r.db.Query(`SELECT "addressID", "userID", "addressDesc", "phone", "addressName", "createdAt", "updatedAt" FROM address WHERE "userID" = $1`, userID)
+	rows, err := r.db.Query(`SELECT addressid, userid, addressdesc, phone, addressname, createdat, updatedat FROM address WHERE userid = $1`, userID)
 	if err != nil {
 		return nil, err
 	}

@@ -59,13 +59,13 @@ func (s *Service) Delete(id int) error {
 
 // AppendOrderID adds an order ID to the user's order list and returns updated user
 func (s *Service) AppendOrderID(userID int, orderID int) (User, error) {
-	// fetch current user
+	// Orders are now in a separate table, no need to maintain order IDs in user table
 	u, err := s.repo.GetByID(userID)
 	if err != nil {
 		return User{}, err
 	}
-	u.OrderIDs = append(u.OrderIDs, orderID)
-	return s.repo.Update(userID, u)
+	// Just return the user without modification
+	return u, nil
 }
 
 func (s *Service) Register(user User) (User, error) {

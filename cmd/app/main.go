@@ -58,26 +58,6 @@ func main() {
 	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS cart jsonb NOT NULL DEFAULT '{}'`); err != nil {
 		panic(err)
 	}
-	// attempt conversion from integer[] to jsonb if the type differs
-	if _, err := db.Exec(`ALTER TABLE users
-    ALTER COLUMN cart TYPE jsonb
-    USING to_jsonb(coalesce(cart, ARRAY[]::integer[]))`); err != nil {
-		// ignore errors in case column already jsonb or conversion not applicable
-	}
-	// if some rows still hold a JSON array (e.g. [1,1,1]), collapse to map with counts
-	if _, err := db.Exec(`UPDATE users
-    SET cart = (
-        SELECT jsonb_object_agg(elem::text, cnt)
-        FROM (
-            SELECT elem, count(*) AS cnt
-            FROM unnest(cart::int[]) AS elem
-            GROUP BY elem
-        ) sub
-    )
-    WHERE jsonb_typeof(cart) = 'array'`); err != nil {
-		// not fatal
-		fmt.Printf("warning: cart normalization failed: %v\n", err)
-	}
 
 	// orders table storing cart map and price breakdown
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS orders (
@@ -107,25 +87,6 @@ func main() {
 	}
 	if _, err := db.Exec(`ALTER TABLE orders RENAME COLUMN IF EXISTS grandprice TO "grandPrice"`); err != nil {
 		// ignore
-	}
-	// if existing orders.cart is integer[] convert to jsonb
-	if _, err := db.Exec(`ALTER TABLE orders
-    ALTER COLUMN cart TYPE jsonb
-    USING to_jsonb(coalesce(cart, ARRAY[]::integer[]))`); err != nil {
-		// ignore
-	}
-	// normalize any array entries to map counts
-	if _, err := db.Exec(`UPDATE orders
-    SET cart = (
-        SELECT jsonb_object_agg(elem::text, cnt)
-        FROM (
-            SELECT elem, count(*) AS cnt
-            FROM unnest(cart::int[]) AS elem
-            GROUP BY elem
-        ) sub
-    )
-    WHERE jsonb_typeof(cart) = 'array'`); err != nil {
-		fmt.Printf("warning: orders cart normalization failed: %v\n", err)
 	}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS banner (banner_id SERIAL PRIMARY KEY, banner_img TEXT, banner_link TEXT, banner_alt TEXT, ord INT)`); err != nil {
 		panic(err)
@@ -295,7 +256,7 @@ func main() {
 		if os.Getenv("ALLOW_RESET_PRODUCTS") != "1" {
 			return c.Status(fiber.StatusForbidden).SendString("not allowed")
 		}
-		rows, err := db.Query(`SELECT "productID", "productImg" FROM products`)
+		rows, err := db.Query(`SELECT productid, productimg FROM products`)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
@@ -316,7 +277,7 @@ func main() {
 			if err != nil {
 				continue
 			}
-			if _, err := db.Exec(`UPDATE products SET product_img_data = $1 WHERE "productID" = $2`, b, id); err != nil {
+			if _, err := db.Exec(`UPDATE products SET product_img_data = $1 WHERE productid = $2`, b, id); err != nil {
 				continue
 			}
 			count++
@@ -368,7 +329,7 @@ func main() {
 
 		var imgData []byte
 		var path sql.NullString
-		err = db.QueryRow(`SELECT product_img_data, "productImg" FROM products WHERE "productID" = $1`, id).Scan(&imgData, &path)
+		err = db.QueryRow(`SELECT product_img_data, productimg FROM products WHERE productid = $1`, id).Scan(&imgData, &path)
 		if err != nil {
 			return c.Status(fiber.StatusNotFound).SendString("not found")
 		}
@@ -458,7 +419,7 @@ func main() {
 			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
 
-		if _, err := db.Exec(`UPDATE products SET product_img_data = $1 WHERE "productID" = $2`, b, id); err != nil {
+		if _, err := db.Exec(`UPDATE products SET product_img_data = $1 WHERE productid = $2`, b, id); err != nil {
 			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
 		return c.SendString("ok")

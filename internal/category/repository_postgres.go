@@ -21,7 +21,7 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 // List returns category rows ordered by `ord` then id.
 // If the table/query is not available the function returns an empty slice (caller-friendly).
 func (r *PostgresRepository) List(limit int) ([]CategoryItem, error) {
-	rows, err := r.db.Query(`SELECT "categoryID", "categoryName", "categoryNameTH", "categoryImg" FROM category ORDER BY COALESCE(ord, 0) DESC, "categoryID" LIMIT $1`, limit)
+	rows, err := r.db.Query(`SELECT categoryid, categoryname, categorynameth, categoryimg FROM category ORDER BY COALESCE(ord, 0) DESC, categoryid LIMIT $1`, limit)
 	if err != nil {
 		// table may not exist or be empty — return empty slice to keep API resilient
 		return []CategoryItem{}, nil

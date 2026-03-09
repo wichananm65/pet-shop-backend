@@ -2,10 +2,6 @@ package user
 
 import (
 	"database/sql"
-	"encoding/json"
-	"strconv"
-	"strings"
-	"github.com/lib/pq"
 )
 
 type PostgresRepository struct {
@@ -18,52 +14,42 @@ type rowScanner interface {
 
 const (
 	listUsersQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic,
-		array_to_string("favoriteProductId", ',') AS favoriteProductId_text,
-		array_to_string("cartProductId", ',') AS cartProductId_text,
-		array_to_string("orderId", ',') AS orderId_text,
-		"createAt", "updateAt"
+		SELECT userid, email, password_hash, firstname, lastname, phone, gender, mainaddressid, avatarpic,
+		createdat, updatedat
 		FROM users
-		ORDER BY "userId"
+		ORDER BY userid
 	`
 	getUserByIDQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic,
-		array_to_string("favoriteProductId", ',') AS favoriteProductId_text,
-		array_to_string("cartProductId", ',') AS cartProductId_text,
-		array_to_string("orderId", ',') AS orderId_text,
-		"createAt", "updateAt"
+		SELECT userid, email, password_hash, firstname, lastname, phone, gender, mainaddressid, avatarpic,
+		createdat, updatedat
 		FROM users
-		WHERE "userId" = $1
+		WHERE userid = $1
 	`
 	getUserByEmailQuery = `
-		SELECT "userId", email, password, "firstName", "lastName", phone, gender, "mainAddressId", avatar_pic,
-		array_to_string("favoriteProductId", ',') AS favoriteProductId_text,
-		array_to_string("cartProductId", ',') AS cartProductId_text,
-		array_to_string("orderId", ',') AS orderId_text,
-		"createAt", "updateAt"
+		SELECT userid, email, password_hash, firstname, lastname, phone, gender, mainaddressid, avatarpic,
+		createdat, updatedat
 		FROM users
 		WHERE email = $1
 	`
 
 	insertUserQuery = `
-		INSERT INTO users (email, password, "firstName", "lastName", phone, gender, "createAt", "updateAt", avatar_pic)
+		INSERT INTO users (email, password_hash, firstname, lastname, phone, gender, createdat, updatedat, avatarpic)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING "userId"
+		RETURNING userid
 	`
 	updateUserQuery = `
 		UPDATE users
 		SET email = $1,
-			"firstName" = $2,
-			"lastName" = $3,
+			firstname = $2,
+			lastname = $3,
 			phone = $4,
 			gender = $5,
-			"mainAddressId" = $9,
-			avatar_pic = $8,
-			"orderId" = $10,
-			"updateAt" = $6
-		WHERE "userId" = $7
+			mainaddressid = $9,
+			avatarpic = $8,
+			updatedat = $6
+		WHERE userid = $7
 	`
-	deleteUserQuery = `DELETE FROM users WHERE "userId" = $1`
+	deleteUserQuery = `DELETE FROM users WHERE userid = $1`
 )
 
 func NewPostgresRepository(db *sql.DB) *PostgresRepository {
@@ -163,7 +149,6 @@ func (r *PostgresRepository) Update(id int, userUpdate User) (User, error) {
 		id,
 		avatarArg,
 		userUpdate.MainAddressID,
-		pq.Array(userUpdate.OrderIDs),
 	)
 	if err != nil {
 		return User{}, err
@@ -203,15 +188,12 @@ func (r *PostgresRepository) CreateCartWithID(cartID int) error {
 
 // AppendOrderID adds the given orderID to the user's orderId column.
 func (r *PostgresRepository) AppendOrderID(userID int, orderID int) error {
-	_, err := r.db.Exec(`UPDATE users SET "orderId" = array_append(coalesce("orderId", ARRAY[]::int[]), $1) WHERE "userId" = $2`, orderID, userID)
-	return err
+	// Orders are now in a separate table, no need to modify user table
+	return nil
 }
 
 func scanUser(scanner rowScanner) (User, error) {
 	user := User{}
-	var favText sql.NullString
-	var cartJSON sql.NullString
-	var orderText sql.NullString
 	var avatar sql.NullString
 	var mainAddr sql.NullInt64
 	var createdAt sql.NullString
@@ -227,9 +209,6 @@ func scanUser(scanner rowScanner) (User, error) {
 		&user.Gender,
 		&mainAddr,
 		&avatar,
-		&favText,
-		&cartJSON,
-		&orderText,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
@@ -244,64 +223,10 @@ func scanUser(scanner rowScanner) (User, error) {
 		user.AvatarPic = &avatar.String
 	}
 
-	if favText.Valid && favText.String != "" {
-		parts := strings.Split(favText.String, ",")
-		user.FavoriteProductIDs = make([]int, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
-			v, err := strconv.Atoi(p)
-			if err != nil {
-				return User{}, err
-			}
-			user.FavoriteProductIDs = append(user.FavoriteProductIDs, v)
-		}
-	}
-
-	if cartJSON.Valid && cartJSON.String != "" {
-		// try map first; if legacy integer array stored, handle that too
-		var rawMap map[string]int
-		if err := json.Unmarshal([]byte(cartJSON.String), &rawMap); err == nil {
-			user.Cart = make(map[int]int, len(rawMap))
-			user.CartProductIDs = make([]int, 0, len(rawMap))
-			for k, qty := range rawMap {
-				pid, err := strconv.Atoi(k)
-				if err != nil {
-					return User{}, err
-				}
-				user.Cart[pid] = qty
-				user.CartProductIDs = append(user.CartProductIDs, pid)
-			}
-		} else {
-			// attempt array unmarshalling fallback
-			var arr []int
-			if err2 := json.Unmarshal([]byte(cartJSON.String), &arr); err2 == nil {
-				user.Cart = make(map[int]int, len(arr))
-				user.CartProductIDs = make([]int, 0, len(arr))
-				for _, pid := range arr {
-					user.Cart[pid]++
-					user.CartProductIDs = append(user.CartProductIDs, pid)
-				}
-			}
-		}
-	}
-
-	// process order ids text if available
-	if orderText.Valid && orderText.String != "" {
-		parts := strings.Split(orderText.String, ",")
-		user.OrderIDs = make([]int, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
-			if id, err := strconv.Atoi(p); err == nil {
-				user.OrderIDs = append(user.OrderIDs, id)
-			}
-		}
-	}
+	// Note: Favorites, cart, and orders are now in separate tables
+	// Initialize empty arrays for backward compatibility
+	user.FavoriteProductIDs = []int{}
+	user.OrderIDs = []int{}
 
 	if createdAt.Valid {
 		user.CreatedAt = createdAt.String

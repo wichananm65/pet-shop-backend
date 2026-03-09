@@ -19,7 +19,7 @@ func TestListByCategoryID_Fallback(t *testing.T) {
 	mock.ExpectQuery("SELECT p.product_id").WithArgs(3).WillReturnError(errors.New("no such table"))
 
 	// legacy query should be attempted next and return a single product
-	rows := sqlmock.NewRows([]string{"productID", "productName", "productNameTH", "productPrice", "score", "productDesc", "productDescTH", "productImg", "productImgSec", "createdAt", "updatedAt", "category"}).
+	rows := sqlmock.NewRows([]string{"productid", "productname", "productnameth", "productprice", "score", "productdesc", "productdescth", "productimg", "productimgsec", "created_at", "updated_at", "category"}).
 		AddRow(5, "Foo", "ไทย", 100, 1, "d", "dth", "img", "img2", "t", "u", "cat")
 	mock.ExpectQuery("FROM products p").WithArgs(3).WillReturnRows(rows)
 
@@ -45,12 +45,12 @@ func TestList_Fallback(t *testing.T) {
 	repo := NewPostgresRepository(db)
 
 	// first query fails
-	mock.ExpectQuery("SELECT product_id").WillReturnError(errors.New("no such table"))
+	mock.ExpectQuery("SELECT productid").WillReturnError(errors.New("no such table"))
 	// fallback returns two rows
-	rows := sqlmock.NewRows([]string{"productID", "productName", "productNameTH", "productPrice", "score", "productDesc", "productDescTH", "productImg", "productImgSec", "createdAt", "updatedAt", "category"}).
+	rows := sqlmock.NewRows([]string{"productid", "productname", "productnameth", "productprice", "score", "productdesc", "productdescth", "productimg", "productimgsec", "created_at", "updated_at", "category"}).
 		AddRow(1, "A", "ไทยA", 10, 1, "d", "dth", "img", "img2", "t", "u", "cat").
 		AddRow(2, "B", "ไทยB", 20, 2, "d2", "dth2", "imgb", "img2b", "t2", "u2", "cat2")
-	mock.ExpectQuery("FROM products").WillReturnRows(rows)
+	mock.ExpectQuery("FROM products ORDER BY productid").WillReturnRows(rows)
 
 	all := repo.List()
 	if len(all) != 2 {
@@ -73,7 +73,7 @@ func TestGetByID_Fallback(t *testing.T) {
 	// simulate Scan error (table missing)
 	mock.ExpectQuery("SELECT .*FROM product").WithArgs(9).WillReturnError(errors.New("no such table"))
 
-	rows := sqlmock.NewRows([]string{"productID", "productName", "productNameTH", "productPrice", "score", "productDesc", "productDescTH", "productImg", "productImgSec", "createdAt", "updatedAt", "category"}).
+	rows := sqlmock.NewRows([]string{"productid", "productname", "productnameth", "productprice", "score", "productdesc", "productdescth", "productimg", "productimgsec", "created_at", "updated_at", "category"}).
 		AddRow(9, "Z", "ไทยZ", 99, 9, "d", "dth", "img", "img2", "t", "u", "cat")
 	mock.ExpectQuery("FROM products").WithArgs(9).WillReturnRows(rows)
 

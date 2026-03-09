@@ -79,29 +79,13 @@ func (h *Handler) createOrder(c *fiber.Ctx) error {
 }
 
 // getOrders returns all orders belonging to the currently authenticated user.
-// It uses the user service to obtain the list of order IDs stored on the
-// user row, then asks the order service for the matching orders.
 func (h *Handler) getOrders(c *fiber.Ctx) error {
 	userID, err := user.GetUserIDFromCtx(c)
 	if err != nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"message": "unauthorized"})
 	}
 
-	usr, err := h.userService.GetByID(userID)
-	if err != nil {
-		switch err {
-		case user.ErrNotFound:
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "user not found"})
-		default:
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
-		}
-	}
-
-	if len(usr.OrderIDs) == 0 {
-		return c.JSON([]Order{})
-	}
-
-	orders, err := h.service.ListByIDs(usr.OrderIDs)
+	orders, err := h.service.ListByUserID(userID)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": err.Error()})
 	}
